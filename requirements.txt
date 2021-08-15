@@ -1,0 +1,3 @@
+rtmidi
+asciimatics
+pysinewave
