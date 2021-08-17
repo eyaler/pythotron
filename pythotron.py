@@ -66,6 +66,7 @@ midi_in.open_port(in_port)
 midi_out.open_port(out_port)
 
 assert len(notes) >= num_controls
+assert len({line[0] for line in help_text}) == len(help_text)
 
 
 def send_msg(state_name, k, v):
