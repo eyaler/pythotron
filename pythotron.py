@@ -46,7 +46,7 @@ n  mute off all tracks
 r  Record on all tracks
 e  record off all tracks
 u  solo/mute/record off all tracks
-g  Global mute on/off all tracks
+o  Overide mute on/off all tracks
 '''.strip().splitlines()
 
 midi_in = rtmidi.MidiIn()
@@ -73,8 +73,8 @@ def toggle_all(state_names, v):
 
 sinewaves = []
 def init():
-    global global_mute, show_help, volumes, controls, new_controls, states, new_states, sinewaves
-    global_mute = False
+    global override_mute, show_help, volumes, controls, new_controls, states, new_states, sinewaves
+    override_mute = False
     show_help = False
     volumes = {k: min_db for k in range(num_controls)}
     controls = {}
@@ -92,7 +92,7 @@ init()
 
 
 def loop(screen):
-    global global_mute, show_help, new_controls, new_states
+    global override_mute, show_help, new_controls, new_states
     slider_size = screen.height // 2
     knob_size = min(screen.height // 2, max_knob_size)
     if knob_size % 2 == 0:
@@ -130,7 +130,7 @@ def loop(screen):
 
         for k in range(num_controls):
             volume = min_db
-            if (not any(states['s'].values()) or states['s'][k]) and not states['m'][k] and not global_mute:
+            if (not any(states['s'].values()) or states['s'][k]) and not states['m'][k] and not override_mute:
                 volume += controls[k] / 127 * (max_db - min_db)
             if volume != volumes[k]:
                 sinewaves[k].set_volume(volume)
@@ -183,7 +183,7 @@ def loop(screen):
                     attr=Screen.A_NORMAL if states['m'][knorm] else Screen.A_BOLD,
                     bg=bg)
 
-        if global_mute:
+        if override_mute:
             screen.print_at('MUTE', screen.width - 4, 0, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
         help_x = max(0, (screen.width - len(max(help_text, key=len))) // 2)
@@ -192,7 +192,7 @@ def loop(screen):
             for i, line in enumerate(help_text):
                 screen.print_at(line, help_x, help_y + i, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
-        need_screen_refresh = bool(new_controls) or global_mute or show_help
+        need_screen_refresh = bool(new_controls) or override_mute or show_help
         new_controls = {}
         ev = screen.get_event()
         if isinstance(ev, KeyboardEvent):  # note: Hebrew keys assume SI 1452-2 / 1452-3 layout
@@ -219,9 +219,9 @@ def loop(screen):
                 toggle_all('r', False)
             elif c in ['u', 'ו']:  # solo/mute/record off all tracks
                 toggle_all('msr', False)
-            elif c in ['g', 'ג']:  # Global mute on/off all tracks (software level)
-                global_mute = not global_mute
-                if not global_mute:
+            elif c in ['o', 'ם']:  # Override mute on/off all tracks (software level)
+                override_mute = not override_mute
+                if not override_mute:
                     need_screen_refresh = True
                     screen.print_at('    ', screen.width - 4, 0, bg=bg_color)
             elif c in ['h', 'י']:  # Help show/hide
