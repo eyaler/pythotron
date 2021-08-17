@@ -47,7 +47,6 @@ r  Record on all tracks
 e  record off all tracks
 u  solo/mute/record off all tracks
 g  Global mute on/off all tracks
-5  Play the 5 tones
 '''.strip().splitlines()
 
 midi_in = rtmidi.MidiIn()
