@@ -1,4 +1,4 @@
-# A simple midi audiovisual monitor
+# A simple MIDI audiovisual monitor
 
 ![GUI](pythotron.jpg)
 
