@@ -42,6 +42,7 @@ i  Initialize
 s  Solo on all tracks
 a  solo off All tracks
 d  solo exclusive mode toggle
+f  solo deFeats mute toggle
 m  Mute on all tracks
 n  mute off all tracks
 o  mute Override all tracks toggle
@@ -52,11 +53,13 @@ u  solo/mute/record off all tracks
 '''.strip().splitlines()
 
 solo_exclusive_text = 'SOLO EXCL'
+solo_defeats_mute_text = 'SOLO>MUTE'
 mute_override_text = 'MUTE OVER'
 record_exclusive_text = 'REC. EXCL'
 solo_exclusive_y = 0
-mute_override_y = 1
-record_exclusive_y = 2
+solo_defeats_mute_y = 1
+mute_override_y = 2
+record_exclusive_y = 3
 
 midi_in = rtmidi.MidiIn()
 midi_out = rtmidi.MidiOut()
@@ -83,9 +86,10 @@ def toggle_all(state_names, v):
 
 sinewaves = []
 def init():
-    global mute_override, solo_exclusive, record_exclusive, show_help, volumes, controls, new_controls, states, new_states, sinewaves
+    global mute_override, solo_exclusive, solo_defeats_mute, record_exclusive, show_help, volumes, controls, new_controls, states, new_states, sinewaves
     mute_override = False
     solo_exclusive = False
+    solo_defeats_mute = False
     record_exclusive = False
     show_help = False
     volumes = {k: min_db for k in range(num_controls)}
@@ -104,7 +108,7 @@ init()
 
 
 def loop(screen):
-    global mute_override, solo_exclusive, record_exclusive, show_help, new_controls, new_states
+    global mute_override, solo_exclusive, solo_defeats_mute, record_exclusive, show_help, new_controls, new_states
     slider_size = screen.height // 2
     knob_size = min(screen.height // 2, max_knob_size)
     if knob_size % 2 == 0:
@@ -158,7 +162,7 @@ def loop(screen):
 
         for k in range(num_controls):
             volume = min_db
-            if (not any(states['s'].values()) or states['s'][k]) and not states['m'][k] and not mute_override:
+            if (not any(states['s'].values()) or states['s'][k]) and (not states['m'][k] or solo_defeats_mute) and not mute_override:
                 volume += controls[k] / 127 * (max_db - min_db)
             if volume != volumes[k]:
                 sinewaves[k].set_volume(volume)
@@ -214,6 +218,9 @@ def loop(screen):
         if solo_exclusive:
             screen.print_at(solo_exclusive_text, screen.width - len(solo_exclusive_text), solo_exclusive_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
+        if solo_defeats_mute:
+            screen.print_at(solo_defeats_mute_text, screen.width - len(solo_defeats_mute_text), solo_defeats_mute_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
+
         if mute_override:
             screen.print_at(mute_override_text, screen.width - len(mute_override_text), mute_override_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
@@ -226,7 +233,7 @@ def loop(screen):
             for i, line in enumerate(help_text):
                 screen.print_at(line, help_x, help_y + i, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
-        need_screen_refresh = bool(new_controls) or mute_override or solo_exclusive or record_exclusive or show_help
+        need_screen_refresh = bool(new_controls) or mute_override or solo_exclusive or solo_defeats_mute or record_exclusive or show_help
         new_controls = {}
         ev = screen.get_event()
         if isinstance(ev, KeyboardEvent):  # note: Hebrew keys assume SI 1452-2 / 1452-3 layout
@@ -258,6 +265,12 @@ def loop(screen):
                     need_screen_refresh = True
                     screen.print_at(' ' * len(solo_exclusive_text), screen.width - len(solo_exclusive_text),
                                     solo_exclusive_y, bg=bg_color)
+            elif c in ['f', 'כ']:  # solo deFeats mute toggle
+                solo_defeats_mute = not solo_defeats_mute
+                if not solo_defeats_mute:
+                    need_screen_refresh = True
+                    screen.print_at(' ' * len(solo_defeats_mute_text), screen.width - len(solo_defeats_mute_text),
+                                    solo_defeats_mute_y, bg=bg_color)
             elif c in ['m', 'צ']:  # Mute on all tracks
                 toggle_all('m', True)
             elif c in ['n', 'מ']:  # mute off all tracks
