@@ -118,8 +118,6 @@ def loop(screen):
     while True:
         if screen.has_resized():
             raise ResizeScreenError('Screen resized')
-        last_solo_on = None
-        last_record_on = None
         while msg := midi_in.get_message():
             msg = msg[0][1:]
             k = int(msg[0])
@@ -131,11 +129,6 @@ def loop(screen):
                     knorm = k - state_starts[state_name]
                     if 0 <= knorm < num_controls:
                         new_states[state_name][knorm] = not states[state_name][knorm] if external_led_mode else v > 0
-                        if new_states[state_name][knorm]:
-                            if state_name == 's':
-                                last_solo_on = knorm
-                            elif state_name == 'r':
-                                last_record_on = knorm
                         break
 
         for k, v in new_controls.items():
@@ -143,13 +136,11 @@ def loop(screen):
                 sinewaves[k - knob_start].set_pitch(notes[k - knob_start] + (v * 2 / 127 - 1) * pitch_max_delta)
         controls.update(new_controls)
 
-        if last_solo_on and solo_exclusive:
-            toggle_all('s', False)
-            new_states['s'][last_solo_on] = True
-
-        if last_record_on and record_exclusive:
-            toggle_all('r', False)
-            new_states['r'][last_record_on] = True
+        for k in range(num_controls):
+            if solo_exclusive and any(new_states['s'].values()) and states['s'][k] and k not in new_states['s']:
+                new_states['s'][k] = False
+            if record_exclusive and any(new_states['r'].values()) and states['r'][k] and k not in new_states['r']:
+                new_states['r'][k] = False
 
         for state_name in new_states:
             for k, v in new_states[state_name].items():
