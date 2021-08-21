@@ -21,7 +21,8 @@ Setup:
   - Set Control Mode to CC
   - Set LED Mode to External, to allow programmatic control 
   - Set all solo/mute/record Button Behavior to Toggle
-  - Set transport record Button Behavior to Toggle
+  - Set transport play/record Button Behavior to Toggle
+  - Other transport buttons should be set to Momentary
 - Otherwise, if LED Mode is Internal, change external_led_mode to: False
 
 Press "h" for help
