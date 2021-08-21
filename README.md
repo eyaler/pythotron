@@ -2,10 +2,10 @@
 
 ![GUI](pythotron.webp)
 
-Supports:
+Supported controls:
 - CC MIDI input   
-  - 8 sliders (track volume) 
-  - 8 knobs (track pitch)
+  - 8 sliders
+  - 8 knobs
   - 8 solo/mute/record buttons
 - State/LED programmatic control:
   - solo/mute/record toggle all
@@ -14,8 +14,17 @@ Supports:
   - mute override all
   - solo defeats mute
 - Transport buttons:
-  - Track rewind/forward (semitone scale shift)
+  - Track rewind/forward
 
+Sound metaphors:
+  - Fader Organ:
+    - tracks = notes
+    - slider = volume
+    - knob = pitch shift
+    - track rewind/forward = semitone scale shift
+  - Finger Theremin (TBD)
+  - Phased Looper (TBD)
+  
 Setup:
 - Code defaults settings are for KORG nanoKONTROL2
 - In KORG KONTROL Editor:
