@@ -136,7 +136,21 @@ class Controller:
                 for k in range(num_controls):
                     self.new_states[state_name][k] = val
 
-    def update(self):
+    def update_single(self, cc, val):
+        cc = int(cc)
+        val = int(val)
+        if 0 <= cc - slider_cc < num_controls or 0 <= cc - knob_cc < num_controls:
+            self.new_controls[cc] = val
+        elif cc in transport_cc:
+            self.new_transport[cc] = not self.transport[cc] if external_led_mode else v > 0
+        else:
+            for state_name in self.states:
+                k = cc - state_cc[state_name]
+                if 0 <= k < num_controls:
+                    self.new_states[state_name][k] = not self.states[state_name][k] if external_led_mode else val > 0
+                    break
+
+    def update_all(self):
         self.controls.update(self.new_controls)
 
         if self.solo_exclusive or self.record_exclusive:
@@ -175,7 +189,7 @@ class Controller:
         return self.mute_override or not self.solo_defeats_mute and self.states['m'][k] or not self.states['s'][k] and any(self.states['s'].values())
 
 
-def loop(screen, ctrl, snd):
+def loop(screen, ctrl, sound):
     slider_size = screen.height // 2
     knob_size = min(screen.height // 2, max_knob_size)
     if knob_size % 2 == 0:
@@ -187,23 +201,10 @@ def loop(screen, ctrl, snd):
             raise ResizeScreenError('Screen resized')
 
         while msg := midi_in.get_message():
-            msg = msg[0][1:]
-            cc = int(msg[0])
-            v = int(msg[1])
-            if 0 <= cc - slider_cc < num_controls or 0 <= cc - knob_cc < num_controls:
-                ctrl.new_controls[cc] = v
-            elif cc in transport_cc:
-                ctrl.new_transport[cc] = not ctrl.transport[cc] if external_led_mode else v > 0
-            else:
-                for state_name in ctrl.states:
-                    k = cc - state_cc[state_name]
-                    if 0 <= k < num_controls:
-                        ctrl.new_states[state_name][k] = not ctrl.states[state_name][k] if external_led_mode else v > 0
-                        break
-
-        ctrl.update()
-        snd.update_volume(ctrl.is_effective_mute, ctrl.controls)
-        snd.update_pitch(ctrl.new_controls, ctrl.track)
+            ctrl.update_single(*msg[0][1:])
+        ctrl.update_all()
+        sound.update_volume(ctrl.is_effective_mute, ctrl.controls)
+        sound.update_pitch(ctrl.new_controls, ctrl.track)
 
         for cc, v in ctrl.new_controls.items():
             k = cc - slider_cc
@@ -299,7 +300,7 @@ def loop(screen, ctrl, snd):
                 return
             elif c in ['i', 'ת']:  # Initialize
                 ctrl.reset()
-                snd.reset()
+                sound.reset()
             elif c in ['s', 'ד']:  # Solo on all tracks
                 ctrl.toggle_all('s', True)
             elif c in ['a', 'ש']:  # solo off All tracks
