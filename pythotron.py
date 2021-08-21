@@ -19,8 +19,9 @@ num_controls = 8
 slider_cc = 0
 knob_cc = 16
 state_cc = {'s': 32, 'm': 48, 'r': 64}
-transport_cc = {41: 'play', 42: 'stop', 43: 'rewind', 44: 'forward', 45: 'record', 46: 'cycle', 58: 'track_rewind', 59: 'track_forward', 60: 'set', 61: 'marker_rewind', 62: 'marker_forward'}
+transport_cc = {'play': 41, 'stop': 42, 'rewind': 43, 'forward': 44, 'record': 45, 'cycle': 46, 'track_rewind': 58, 'track_forward': 59, 'set': 60, 'marker_rewind': 61, 'marker_forward': 62}
 transport_led = ['play', 'stop', 'rewind', 'forward', 'record', 'cycle']
+cc2trans = {v: k for k, v in transport_cc.items()}
 external_led_mode = True  # requires setting LED Mode to "External" in KORG KONTROL Editor
 
 title = 'Pythotron'
@@ -142,8 +143,9 @@ class Controller:
         val = int(val)
         if 0 <= cc - slider_cc < num_controls or 0 <= cc - knob_cc < num_controls:
             self.new_controls[cc] = val
-        elif cc in transport_cc:
-            self.new_transport[cc] = not self.transport[cc] if external_led_mode else v > 0
+        elif cc in cc2trans:
+            trans = cc2trans[cc]
+            self.new_transport[trans] = not self.transport[trans] if external_led_mode else val > 0
         else:
             for state_name in self.states:
                 k = cc - state_cc[state_name]
@@ -170,16 +172,22 @@ class Controller:
             self.states[state_name].update(self.new_states[state_name])
         self.new_states = {state_name: {} for state_name in self.states}
 
+        if 'stop' in self.new_transport and not self.new_transport['stop']:
+            if 'play' in self.transport and self.transport['play']:
+                self.new_transport['play'] = False
+            if 'record' in self.transport and self.transport['record']:
+                self.new_transport['record'] = False
+
         refresh_knobs = False
-        for cc, v in self.new_transport.items():
-            if transport_cc[cc] == 'track_rewind' and v:
+        for trans, v in self.new_transport.items():
+            if trans == 'track_rewind' and v:
                 self.track -= 1
                 refresh_knobs = show_notes
-            elif transport_cc[cc] == 'track_forward' and v:
+            elif trans == 'track_forward' and v:
                 self.track += 1
                 refresh_knobs = show_notes
-            if external_led_mode and transport_cc[cc] in transport_led:
-                send_msg(cc, v)
+            if external_led_mode and trans in transport_led:
+                send_msg(transport_cc[trans], v)
         if refresh_knobs:
             for k in range(num_controls):
                 self.new_controls[knob_cc + k] = self.controls[knob_cc + k]

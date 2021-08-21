@@ -14,7 +14,7 @@ Supports:
   - mute override all
   - solo defeats mute
 - Transport buttons:
-  - Track rewind/forward (shift scale)
+  - Track rewind/forward (semitone scale shift)
 
 Setup:
 - Code defaults settings are for KORG nanoKONTROL2
