@@ -97,9 +97,10 @@ class Soundscape:
             self.sinewaves[k].play()
 
     def update_pitch(self, new_controls, track):
-        for k, v in new_controls.items():
-            if 0 <= k - knob_cc < num_controls:
-                self.sinewaves[k - knob_cc].set_pitch(notes[k - knob_cc] + track + (v * 2 / 127 - 1) * pitch_max_delta)
+        for cc, v in new_controls.items():
+            k = cc - knob_cc
+            if 0 <= k < num_controls:
+                self.sinewaves[k].set_pitch(notes[k] + track + (v * 2 / 127 - 1) * pitch_max_delta)
 
     def update_volume(self, is_effective_mute, controls):
         for k in range(num_controls):
@@ -200,8 +201,11 @@ def loop(screen, ctrl, sound):
         if screen.has_resized():
             raise ResizeScreenError('Screen resized')
 
-        while msg := midi_in.get_message():
+        msg = midi_in.get_message()
+        while msg:
             ctrl.update_single(*msg[0][1:])
+            msg = midi_in.get_message()
+
         ctrl.update_all()
         sound.update_volume(ctrl.is_effective_mute, ctrl.controls)
         sound.update_pitch(ctrl.new_controls, ctrl.track)
