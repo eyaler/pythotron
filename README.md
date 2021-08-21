@@ -21,7 +21,7 @@ Musical metaphors:
     - slider = volume
     - knob = pitch shift
     - track rewind/forward = semitone scale shift
-    - marker rewind/forward = select waveform
+    - marker rewind/forward = change waveform
   - Finger Theremin (TBD)
   - Phased Looper (TBD)
   
