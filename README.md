@@ -13,6 +13,7 @@ Supports:
 - Software override options:
   - mute override all
   - solo defeats mute
+- Transport buttons
 
 Setup:
 - Code defaults settings are for KORG nanoKONTROL2
@@ -20,6 +21,7 @@ Setup:
   - Set Control Mode to CC
   - Set LED Mode to External, to allow programmatic control 
   - Set all solo/mute/record Button Behavior to Toggle
+  - Set transport record Button Behavior to Toggle
 - Otherwise, if LED Mode is Internal, change external_led_mode to: False
 
 Press "h" for help
