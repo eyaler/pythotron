@@ -5,6 +5,8 @@ from asciimatics.screen import Screen
 from asciimatics.event import KeyboardEvent
 from asciimatics.exceptions import ResizeScreenError
 from pysinewave import SineWave
+import numpy as np
+from scipy.signal import sawtooth
 
 
 max_db = 5
@@ -12,6 +14,8 @@ min_db = -120
 decibels_per_second = 200
 pitch_max_delta = 1.05
 pitch_per_second = 100
+channels = 1
+waveforms = [np.sin, sawtooth]
 sleep = 0.001
 
 # this is for KORG nanoKONTROL2:
@@ -85,32 +89,37 @@ def send_msg(cc, val):
 
 class Soundscape:
     def __init__(self):
-        self.sinewaves = []
+        self.tracks = []
         self.reset()
 
     def reset(self):
+        self.waveform = waveforms[0]
         self.volumes = {k: min_db for k in range(num_controls)}
-        for k in range(len(self.sinewaves))[::-1]:
-            self.sinewaves[k].stop()
-            del self.sinewaves[k]
+        for k in range(len(self.tracks))[::-1]:
+            self.tracks[k].stop()
+            del self.tracks[k]
         for k in range(num_controls):
-            self.sinewaves.append(SineWave(pitch=notes[k], pitch_per_second=pitch_per_second, decibels=min_db, decibels_per_second=decibels_per_second))
-            self.sinewaves[k].play()
+            self.tracks.append(SineWave(pitch=notes[k], pitch_per_second=pitch_per_second, decibels=min_db,
+                                        decibels_per_second=decibels_per_second, channels=channels, waveform=self.waveform))
+            self.tracks[k].play()
 
-    def update_pitch(self, new_controls, track):
-        for cc, v in new_controls.items():
+    def update(self, ctrl):
+        waveform = waveforms[ctrl.marker % len(waveforms)]
+        for k in range(num_controls):
+            if self.waveform != waveform:
+                self.tracks[k].set_waveform(waveform)
+            volume = min_db
+            if not ctrl.is_effective_mute(k):
+                volume += ctrl.controls[k] / 127 * (max_db - min_db)
+            if volume != self.volumes[k]:
+                self.tracks[k].set_volume(volume)
+                self.volumes[k] = volume
+        self.waveform = waveform
+
+        for cc, v in ctrl.new_controls.items():
             k = cc - knob_cc
             if 0 <= k < num_controls:
-                self.sinewaves[k].set_pitch(notes[k] + track + (v * 2 / 127 - 1) * pitch_max_delta)
-
-    def update_volume(self, is_effective_mute, controls):
-        for k in range(num_controls):
-            volume = min_db
-            if not is_effective_mute(k):
-                volume += controls[k] / 127 * (max_db - min_db)
-            if volume != self.volumes[k]:
-                self.sinewaves[k].set_volume(volume)
-                self.volumes[k] = volume
+                self.tracks[k].set_pitch(notes[k] + ctrl.track + (v * 2 / 127 - 1) * pitch_max_delta)
 
 
 class Controller:
@@ -221,8 +230,7 @@ def loop(screen, ctrl, sound):
             msg = midi_in.get_message()
 
         ctrl.update_all()
-        sound.update_volume(ctrl.is_effective_mute, ctrl.controls)
-        sound.update_pitch(ctrl.new_controls, ctrl.track)
+        sound.update(ctrl)
 
         for cc, v in ctrl.new_controls.items():
             k = cc - slider_cc
