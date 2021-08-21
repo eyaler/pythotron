@@ -7,16 +7,15 @@ Supported controls:
   - 8 sliders
   - 8 knobs
   - 8 solo/mute/record buttons
+  - Transport buttons
 - State/LED programmatic control:
   - solo/mute/record toggle all
   - solo/record exclusive mode
 - Software override options:
   - mute override all
   - solo defeats mute
-- Transport buttons:
-  - Track rewind/forward
 
-Sound metaphors:
+Musical metaphors:
   - Fader Organ:
     - tracks = notes
     - slider = volume

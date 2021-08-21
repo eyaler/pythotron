@@ -131,6 +131,7 @@ class Controller:
         self.new_transport = {k: False for k in transport_cc}
         self.transport = dict(self.new_transport)
         self.track = 0
+        self.marker = 0
 
     def toggle_all(self, state_names, val):
         if external_led_mode:
@@ -180,12 +181,17 @@ class Controller:
 
         refresh_knobs = False
         for trans, v in self.new_transport.items():
-            if trans == 'track_rewind' and v:
-                self.track -= 1
-                refresh_knobs = show_notes
-            elif trans == 'track_forward' and v:
-                self.track += 1
-                refresh_knobs = show_notes
+            if v:
+                if trans == 'track_rewind':
+                    self.track -= 1
+                    refresh_knobs = show_notes
+                elif trans == 'track_forward':
+                    self.track += 1
+                    refresh_knobs = show_notes
+                elif trans == 'marker_rewind':
+                    self.marker -= 1
+                elif trans == 'marker_forward':
+                    self.marker += 1
             if external_led_mode and trans in transport_led:
                 send_msg(transport_cc[trans], v)
         if refresh_knobs:
