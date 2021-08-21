@@ -4,7 +4,7 @@ import re
 from asciimatics.screen import Screen
 from asciimatics.event import KeyboardEvent
 from asciimatics.exceptions import ResizeScreenError
-from pysinewave import SineWave
+from pysinewave import SineWave  # note: using the customized https://github.com/eyaler/pysinewave
 import numpy as np
 from scipy.signal import sawtooth
 

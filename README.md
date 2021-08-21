@@ -26,6 +26,7 @@ Musical metaphors:
   - Phased Looper (TBD)
   
 Setup:
+- pip install -r requirements.txt
 - Code defaults settings are for KORG nanoKONTROL2
 - In KORG KONTROL Editor:
   - Set Control Mode to CC
