@@ -19,8 +19,8 @@ num_controls = 8
 slider_cc = 0
 knob_cc = 16
 state_cc = {'s': 32, 'm': 48, 'r': 64}
-transport_cc = {41: 'play', 42: 'stop', 43: 'rewind', 44: 'fastforward', 45: 'record', 46: 'cycle', 58: 'track_rewind', 59: 'track_fastforward', 60: 'set', 61: 'marker_rewind', 62: 'marker_fastforward'}
-transport_led = ['play', 'stop', 'rewind', 'fastforward', 'record', 'cycle']
+transport_cc = {41: 'play', 42: 'stop', 43: 'rewind', 44: 'forward', 45: 'record', 46: 'cycle', 58: 'track_rewind', 59: 'track_forward', 60: 'set', 61: 'marker_rewind', 62: 'marker_forward'}
+transport_led = ['play', 'stop', 'rewind', 'forward', 'record', 'cycle']
 external_led_mode = True  # requires setting LED Mode to "External" in KORG KONTROL Editor
 
 title = 'Pythotron'
@@ -175,7 +175,7 @@ class Controller:
             if transport_cc[cc] == 'track_rewind' and v:
                 self.track -= 1
                 refresh_knobs = show_notes
-            elif transport_cc[cc] == 'track_fastforward' and v:
+            elif transport_cc[cc] == 'track_forward' and v:
                 self.track += 1
                 refresh_knobs = show_notes
             if external_led_mode and transport_cc[cc] in transport_led:

@@ -4,8 +4,8 @@
 
 Supports:
 - CC MIDI input   
-  - 8 sliders
-  - 8 knobs
+  - 8 sliders (track volume) 
+  - 8 knobs (track pitch)
   - 8 solo/mute/record buttons
 - State/LED programmatic control:
   - solo/mute/record toggle all
@@ -13,7 +13,8 @@ Supports:
 - Software override options:
   - mute override all
   - solo defeats mute
-- Transport buttons
+- Transport buttons:
+  - Track rewind/forward (shift scale)
 
 Setup:
 - Code defaults settings are for KORG nanoKONTROL2
