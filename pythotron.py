@@ -9,13 +9,30 @@ import numpy as np
 from scipy.signal import sawtooth
 
 
+def dsaw(detune=0):
+    def func(x):
+        w = sawtooth(x * 2 ** (-detune / 2 / 12))
+        if detune:
+            w = (w + sawtooth(x * 2 ** (detune / 2 / 12))) / 2
+        return w
+    return func
+
+
+def arpeggio(waveform=np.sin, notes=[0, 4, 7]):
+    def func(x):
+        return sum(waveform(x * 2 ** (n / 12)) for n in notes) / len(notes)
+    return func
+
+
 max_db = 5
 min_db = -120
 decibels_per_second = 200
 pitch_max_delta = 1.05
 pitch_per_second = 100
+detune = 0.1
+arpeggio_notes = [0, 4, 7]
+waveforms = [np.sin, dsaw(detune=detune), arpeggio(dsaw(detune=detune), notes=arpeggio_notes), arpeggio(notes=arpeggio_notes)]
 channels = 1
-waveforms = [np.sin, sawtooth]
 sleep = 0.001
 
 # this is for KORG nanoKONTROL2:
@@ -34,6 +51,7 @@ notes = [0, 2, 4, 5, 7, 9, 11, 12]
 show_notes = True
 in_port = 0
 out_port = 1
+
 
 fg_color = Screen.COLOUR_RED
 bg_color = Screen.COLOUR_BLACK
