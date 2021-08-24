@@ -5,8 +5,10 @@ from asciimatics.screen import Screen
 from asciimatics.event import KeyboardEvent
 from asciimatics.exceptions import ResizeScreenError
 from pysinewave import SineWave  # note: using the customized https://github.com/eyaler/pysinewave
+from pysinewave.utilities import DEFAULT_SAMPLE_RATE
 import numpy as np
 from scipy.signal import sawtooth
+from functools import partial
 
 
 def dsaw(detune=0):
@@ -18,9 +20,25 @@ def dsaw(detune=0):
     return func
 
 
-def arpeggio(waveform=np.sin, notes=[0, 4, 7]):
+def arpeggio(waveform=np.sin, notes=[0, 4, 7], dt=None, dv=1):
+    steps = [0] * len(notes)
     def func(x):
-        return sum(waveform(x * 2 ** (n / 12)) for n in notes) / len(notes)
+        if dt:
+            frames = [np.empty_like(x) for i in range(len(notes))]
+            t = time.time()
+            for j in range(len(x)):
+                ind = int((t + j / sample_rate) / dt % len(notes))
+                for i in range(len(notes)):
+                    prev = steps[i] if j == 0 else frames[i][j - 1]
+                    frames[i][j] = min(prev + dv, 1) if i == ind else max(prev - dv, 0)
+            for i in range(len(notes)):
+                steps[i] = frames[i][-1]
+        else:
+            frames = [1] * len(notes)
+        w = sum(frames[i] * waveform(x * 2 ** (n / 12)) for i, n in enumerate(notes))
+        if not dt:
+            w /= len(notes)
+        return w
     return func
 
 
@@ -29,11 +47,20 @@ min_db = -120
 decibels_per_second = 200
 pitch_max_delta = 1.05
 pitch_per_second = 100
-detune = 0.1
+sample_rate = DEFAULT_SAMPLE_RATE
+cutoff = 2000000000
+detune = 0.02
 arpeggio_notes = [0, 4, 7]
-waveforms = [np.sin, dsaw(detune=detune), arpeggio(dsaw(detune=detune), notes=arpeggio_notes), arpeggio(notes=arpeggio_notes)]
+arpeggio_notes7 = [0, 4, 7, 10]
+arpeggio_dt = 0.25
+arpeggio_dv = 0.005
+waveforms = [np.sin,
+             dsaw(detune=detune),
+             arpeggio(waveform=dsaw(detune=detune), notes=arpeggio_notes),
+             arpeggio(notes=arpeggio_notes),
+             partial(arpeggio, notes=arpeggio_notes7, dt=arpeggio_dt, dv=arpeggio_dv)]
 channels = 1
-sleep = 0.001
+sleep = 0.0001
 
 # this is for KORG nanoKONTROL2:
 num_controls = 8
@@ -110,6 +137,12 @@ class Soundscape:
         self.tracks = []
         self.reset()
 
+    def instantiate_waveform(self, waveform_or_closure):
+        try:
+            waveform_or_closure = waveform_or_closure()
+        finally:
+            return waveform_or_closure
+
     def reset(self):
         self.waveform = waveforms[0]
         self.volumes = {k: min_db for k in range(num_controls)}
@@ -118,14 +151,15 @@ class Soundscape:
             del self.tracks[k]
         for k in range(num_controls):
             self.tracks.append(SineWave(pitch=notes[k], pitch_per_second=pitch_per_second, decibels=min_db,
-                                        decibels_per_second=decibels_per_second, channels=channels, waveform=self.waveform))
+                                        decibels_per_second=decibels_per_second, channels=channels,
+                                        samplerate=sample_rate, waveform=self.instantiate_waveform(self.waveform), cutoff=cutoff))
             self.tracks[k].play()
 
     def update(self, ctrl):
         waveform = waveforms[ctrl.marker % len(waveforms)]
         for k in range(num_controls):
             if self.waveform != waveform:
-                self.tracks[k].set_waveform(waveform)
+                self.tracks[k].set_waveform(self.instantiate_waveform(waveform))
             volume = min_db
             if not ctrl.is_effective_mute(k):
                 volume += ctrl.controls[k] / 127 * (max_db - min_db)
