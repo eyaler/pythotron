@@ -7,8 +7,11 @@ from asciimatics.exceptions import ResizeScreenError
 from pysinewave import SineWave  # note: using the customized https://github.com/eyaler/pysinewave
 from pysinewave.utilities import DEFAULT_SAMPLE_RATE
 import numpy as np
-from scipy.signal import sawtooth
 from functools import partial
+
+
+def sawtooth(x):  # 15x faster than scipy.signal.sawtooth which was too slow for fast transitions
+    return np.mod(x, 2 * np.pi) / np.pi - 1
 
 
 def dsaw(detune=0):
@@ -21,7 +24,7 @@ def dsaw(detune=0):
 
 
 def arpeggio(waveform=np.sin, notes=[0, 4, 7], dt=None, dv=1):
-    steps = [0] * len(notes)
+    save_steps = [0] * len(notes)  # note: when this is used we must instantiate a new closure for each track
     def func(x):
         if dt:
             frames = [np.empty_like(x) for i in range(len(notes))]
@@ -29,10 +32,10 @@ def arpeggio(waveform=np.sin, notes=[0, 4, 7], dt=None, dv=1):
             for j in range(len(x)):
                 ind = int((t + j / sample_rate) / dt % len(notes))
                 for i in range(len(notes)):
-                    prev = steps[i] if j == 0 else frames[i][j - 1]
+                    prev = save_steps[i] if j == 0 else frames[i][j - 1]
                     frames[i][j] = min(prev + dv, 1) if i == ind else max(prev - dv, 0)
             for i in range(len(notes)):
-                steps[i] = frames[i][-1]
+                save_steps[i] = frames[i][-1]
         else:
             frames = [1] * len(notes)
         w = sum(frames[i] * waveform(x * 2 ** (n / 12)) for i, n in enumerate(notes))
