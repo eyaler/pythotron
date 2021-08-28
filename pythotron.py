@@ -9,158 +9,7 @@ import numpy as np
 from functools import partial
 import librosa
 import sys
-
-
-def sawtooth(x):  # 15x faster than scipy.signal.sawtooth which was too slow for fast transitions
-    return np.mod(x, 2 * np.pi) / np.pi - 1
-
-
-def func_factory(f):
-    f.is_func_factory = True
-    return f
-
-
-@func_factory
-def dsaw(detune=0):
-    def func(x):
-        w = sawtooth(x * 2 ** (-detune / 2 / 12))
-        if detune:
-            w = (w + sawtooth(x * 2 ** (detune / 2 / 12))) / 2
-        return w
-    return func
-
-
-@func_factory
-def chord(waveform=np.sin, seventh=False, dt=None, dv=1, **kwargs):
-    track = kwargs['track']
-    notes = (chord_notes7 if seventh else chord_notes)
-    notes = notes[track % len(notes)]
-    save_steps = [0] * len(notes)  # note: when this is used we must instantiate a new closure for each track + requires high CPU settings otherwise you get clicks
-
-    def func(x):
-        if dt:
-            frames = [np.empty_like(x) for i in range(len(notes))]
-            t = time.time()
-            for j in range(len(x)):
-                ind = int((t + j / samplerate) / dt % len(notes))
-                for i in range(len(notes)):
-                    prev = save_steps[i] if j == 0 else frames[i][j - 1]
-                    frames[i][j] = min(prev + dv, 1) if i == ind else max(prev - dv, 0)
-            for i in range(len(notes)):
-                save_steps[i] = frames[i][-1]
-        else:
-            frames = [1] * len(notes)
-        w = sum(frames[i] * waveform(x * 2 ** (n / 12)) for i, n in enumerate(notes))
-        if not dt:
-            w /= len(notes)
-        return w
-    return func
-
-
-@func_factory
-def loop(reverse=True, mono=True, **kwargs):
-    # we currently use pysinewave which is (possibly duplicated) mono
-    smp = kwargs['sample']
-    if mono:
-        smp = librosa.to_mono(smp)
-    if reverse:
-        smp = np.hstack((smp, smp[..., ::-1]))
-    pos = 0
-
-    def func(x):
-        nonlocal pos
-        output = smp[..., pos:pos + x.shape[-1]]
-        while output.shape[-1] < x.shape[-1]:
-            output = np.hstack((output, smp[..., :x.shape[-1]]))
-        pos = (pos + x.shape[-1]) % smp.shape[-1]
-        return output[..., :x.shape[-1]]
-    return func
-
-
-@func_factory
-def freeze(windowsize_seconds=0.25, amp_factor=1, mono=True, **kwargs):  # from https://github.com/paulnasca/paulstretch_python
-    # we currently use pysinewave which is (possibly duplicated) mono
-    smp = kwargs['sample']
-
-    def optimize_windowsize(n):
-        orig_n = n
-        while True:
-            n = orig_n
-            while (n % 2) == 0:
-                n /= 2
-            while (n % 3) == 0:
-                n /= 3
-            while (n % 5) == 0:
-                n /= 5
-
-            if n < 2:
-                break
-            orig_n += 1
-        return orig_n
-
-    nchannels = len(smp.shape)
-
-    # make sure that windowsize is even and larger than 16
-    windowsize = int(windowsize_seconds * samplerate)
-    if windowsize < 16:
-        windowsize = 16
-    windowsize = optimize_windowsize(windowsize)
-    windowsize = int(windowsize / 2) * 2
-    half_windowsize = int(windowsize / 2)
-
-    # correct the end of the smp
-    nsamples = smp.shape[-1]
-    end_size = int(samplerate * 0.05)
-    if end_size < 16:
-        end_size = 16
-
-    smp[..., nsamples - end_size:nsamples] *= np.linspace(1, 0, end_size)
-
-    # create Window window
-    window = pow(1 - pow(np.linspace(-1, 1, windowsize), 2), 1.25)
-
-    old_windowed_buf = np.zeros((nchannels if not mono else 1, windowsize)).squeeze()
-
-    # get the windowed buffer
-    buf = smp[..., :windowsize]
-    if buf.shape[-1] < windowsize:
-        buf = np.hstack([buf, np.zeros((nchannels, windowsize - buf.shape[-1])).squeeze()])
-    buf = buf * window
-
-    # get the amplitudes of the frequency components and discard the phases
-    freqs = abs(np.fft.rfft(buf))
-
-    later = old_windowed_buf[..., :0]
-
-    def func(x):
-        nonlocal old_windowed_buf, later
-        while later.shape[-1] < x.shape[-1]:
-            # randomize the phases by multiplication with a random complex number with modulus=1
-            ph = np.random.uniform(0, 2 * np.pi, (nchannels, freqs.shape[-1])) * 1j
-            rand_freqs = freqs * np.exp(ph)
-
-            # do the inverse FFT
-            buf = np.fft.irfft(rand_freqs)
-
-            if mono:
-                buf = librosa.to_mono(buf.squeeze())
-
-            # window again the output buffer
-            buf *= window
-
-            # overlap-add the output
-            output = buf[..., :half_windowsize] + old_windowed_buf[..., half_windowsize:windowsize]
-            old_windowed_buf = buf
-
-            # clamp the values to -1..1
-            output = np.clip(output, -1, 1)
-
-            later = np.hstack((later, output))
-
-        now = later[..., :x.shape[-1]]
-        later = later[..., x.shape[-1]:]
-        return now * amp_factor
-    return func
+from synths_samplers import *
 
 
 max_db = 5
@@ -180,11 +29,12 @@ paulstretch_amp_factor = 2
 waveforms = [np.sin,
              dsaw(detune=detune),
              partial(chord, waveform=dsaw(detune=detune)),
-             chord,
-             partial(chord, seventh=True, dt=arpeggio_dt, dv=arpeggio_dv),
-             partial(freeze, windowsize_seconds=paulstretch_window_size, amp_factor=paulstretch_amp_factor),
+             partial(chord, chord_notes=chord_notes),
+             partial(chord, chord_notes=chord_notes7, dt=arpeggio_dt, dv=arpeggio_dv, samplerate=samplerate),
+             partial(freeze, windowsize_seconds=paulstretch_window_size, amp_factor=paulstretch_amp_factor, samplerate=samplerate),
              partial(loop, reverse=True)]
-channels = 1
+channels = 2
+stereo_to_mono_tolerance = 1e-3
 sleep = 0.0001
 
 # this is for KORG nanoKONTROL2:
@@ -200,7 +50,6 @@ external_led_mode = True  # requires setting LED Mode to "External" in KORG KONT
 title = 'Pythotron'
 max_knob_size = 21
 notes = [0, 2, 4, 5, 7, 9, 11, 12]
-show_notes = True
 in_port = 0
 out_port = 1
 sample_folder = 'samples'
@@ -257,13 +106,17 @@ def send_msg(cc, val):
     midi_out.send_message([176, cc, val * 127])
 
 
+def hasattr_partial(f, attr):
+    return hasattr(f, attr) or hasattr(f, 'func') and hasattr(f.func, attr)
+
+
 class Soundscape:
     def __init__(self):
         self.tracks = []
         self.reset()
 
     def instantiate_waveform(self, waveform_or_closure, track=None):
-        if hasattr(waveform_or_closure, 'is_func_factory') or hasattr(waveform_or_closure, 'func') and hasattr(waveform_or_closure.func, 'is_func_factory'):
+        if hasattr_partial(waveform_or_closure, 'is_func_factory'):
             waveform_or_closure = waveform_or_closure(track=track, sample=self.samples[track])
         return waveform_or_closure
 
@@ -278,6 +131,8 @@ class Soundscape:
             print(e)
             print('Error loading sample', filename)
             sys.exit(1)
+        if len(audio.shape) == 2 and np.allclose(audio[0], audio[1], atol=stereo_to_mono_tolerance):
+            audio = librosa.to_mono(audio)
         self.samples = np.array_split(audio, num_controls, axis=-1)
         self.waveform = None
 
@@ -387,14 +242,16 @@ class Controller:
             if v:
                 if trans == 'track_rewind':
                     self.track -= 1
-                    refresh_knobs = show_notes
+                    refresh_knobs = True
                 elif trans == 'track_forward':
                     self.track += 1
-                    refresh_knobs = show_notes
+                    refresh_knobs = True
                 elif trans == 'marker_rewind':
                     self.marker -= 1
+                    refresh_knobs = True
                 elif trans == 'marker_forward':
                     self.marker += 1
+                    refresh_knobs = True
                 elif trans == 'rewind':
                     self.sample -= 1
                 elif trans == 'forward':
@@ -438,14 +295,18 @@ def main_loop(screen, ctrl, sound):
             else:
                 k = cc - knob_cc
                 control_size = knob_size
-                if show_notes:
-                    for i, label in enumerate(note_names[(notes[k] + ctrl.track) % len(note_names)].ljust(2)):
-                        screen.print_at(label,
-                                        int((k + 0.5) * screen.width / num_controls),
-                                        int(int((knob_size - 1) / 4 + 1) - knob_size / 4 - i + screen.height / 4),
-                                        colour=solo_color if ctrl.states['s'][k] else fg_color,
-                                        attr=Screen.A_NORMAL if ctrl.states['m'][k] else Screen.A_BOLD,
-                                        bg=record_color if ctrl.states['r'][k] else bg_color)
+                if hasattr_partial(sound.waveform, 'show_track_numbers'):
+                    label = str(k+1)[::-1]
+                else:
+                    label = note_names[(notes[k] + ctrl.track) % len(note_names)].ljust(2)
+
+                for i, char in enumerate(label):
+                    screen.print_at(char,
+                                    int((k + 0.5) * screen.width / num_controls),
+                                    int(int((knob_size - 1) / 4 + 1) - knob_size / 4 - i + screen.height / 4),
+                                    colour=solo_color if ctrl.states['s'][k] else fg_color,
+                                    attr=Screen.A_REVERSE,
+                                    bg=record_color if ctrl.states['r'][k] else bg_color)
             val_j = int(min(v, 126) / 127 * control_size)
             for j in range(control_size):
                 text = '   '
