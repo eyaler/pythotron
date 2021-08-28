@@ -5,15 +5,22 @@ from asciimatics.screen import Screen
 from asciimatics.event import KeyboardEvent
 from asciimatics.exceptions import ResizeScreenError
 from pysinewave import SineWave  # note: using the customized https://github.com/eyaler/pysinewave
-from pysinewave.utilities import DEFAULT_SAMPLE_RATE
 import numpy as np
 from functools import partial
+import librosa
+import sys
 
 
 def sawtooth(x):  # 15x faster than scipy.signal.sawtooth which was too slow for fast transitions
     return np.mod(x, 2 * np.pi) / np.pi - 1
 
 
+def func_factory(f):
+    f.is_func_factory = True
+    return f
+
+
+@func_factory
 def dsaw(detune=0):
     def func(x):
         w = sawtooth(x * 2 ** (-detune / 2 / 12))
@@ -23,14 +30,19 @@ def dsaw(detune=0):
     return func
 
 
-def arpeggio(waveform=np.sin, notes=[0, 4, 7], dt=None, dv=1):
-    save_steps = [0] * len(notes)  # note: when this is used we must instantiate a new closure for each track
+@func_factory
+def chord(waveform=np.sin, seventh=False, dt=None, dv=1, **kwargs):
+    track = kwargs['track']
+    notes = (chord_notes7 if seventh else chord_notes)
+    notes = notes[track % len(notes)]
+    save_steps = [0] * len(notes)  # note: when this is used we must instantiate a new closure for each track + requires high CPU settings otherwise you get clicks
+
     def func(x):
         if dt:
             frames = [np.empty_like(x) for i in range(len(notes))]
             t = time.time()
             for j in range(len(x)):
-                ind = int((t + j / sample_rate) / dt % len(notes))
+                ind = int((t + j / samplerate) / dt % len(notes))
                 for i in range(len(notes)):
                     prev = save_steps[i] if j == 0 else frames[i][j - 1]
                     frames[i][j] = min(prev + dv, 1) if i == ind else max(prev - dv, 0)
@@ -45,23 +57,133 @@ def arpeggio(waveform=np.sin, notes=[0, 4, 7], dt=None, dv=1):
     return func
 
 
+@func_factory
+def loop(reverse=True, mono=True, **kwargs):
+    # we currently use pysinewave which is (possibly duplicated) mono
+    smp = kwargs['sample']
+    if mono:
+        smp = librosa.to_mono(smp)
+    if reverse:
+        smp = np.hstack((smp, smp[..., ::-1]))
+    pos = 0
+
+    def func(x):
+        nonlocal pos
+        output = smp[..., pos:pos + x.shape[-1]]
+        while output.shape[-1] < x.shape[-1]:
+            output = np.hstack((output, smp[..., :x.shape[-1]]))
+        pos = (pos + x.shape[-1]) % smp.shape[-1]
+        return output[..., :x.shape[-1]]
+    return func
+
+
+@func_factory
+def freeze(windowsize_seconds=0.25, amp_factor=1, mono=True, **kwargs):  # from https://github.com/paulnasca/paulstretch_python
+    # we currently use pysinewave which is (possibly duplicated) mono
+    smp = kwargs['sample']
+
+    def optimize_windowsize(n):
+        orig_n = n
+        while True:
+            n = orig_n
+            while (n % 2) == 0:
+                n /= 2
+            while (n % 3) == 0:
+                n /= 3
+            while (n % 5) == 0:
+                n /= 5
+
+            if n < 2:
+                break
+            orig_n += 1
+        return orig_n
+
+    nchannels = len(smp.shape)
+
+    # make sure that windowsize is even and larger than 16
+    windowsize = int(windowsize_seconds * samplerate)
+    if windowsize < 16:
+        windowsize = 16
+    windowsize = optimize_windowsize(windowsize)
+    windowsize = int(windowsize / 2) * 2
+    half_windowsize = int(windowsize / 2)
+
+    # correct the end of the smp
+    nsamples = smp.shape[-1]
+    end_size = int(samplerate * 0.05)
+    if end_size < 16:
+        end_size = 16
+
+    smp[..., nsamples - end_size:nsamples] *= np.linspace(1, 0, end_size)
+
+    # create Window window
+    window = pow(1 - pow(np.linspace(-1, 1, windowsize), 2), 1.25)
+
+    old_windowed_buf = np.zeros((nchannels if not mono else 1, windowsize)).squeeze()
+
+    # get the windowed buffer
+    buf = smp[..., :windowsize]
+    if buf.shape[-1] < windowsize:
+        buf = np.hstack([buf, np.zeros((nchannels, windowsize - buf.shape[-1])).squeeze()])
+    buf = buf * window
+
+    # get the amplitudes of the frequency components and discard the phases
+    freqs = abs(np.fft.rfft(buf))
+
+    later = old_windowed_buf[..., :0]
+
+    def func(x):
+        nonlocal old_windowed_buf, later
+        while later.shape[-1] < x.shape[-1]:
+            # randomize the phases by multiplication with a random complex number with modulus=1
+            ph = np.random.uniform(0, 2 * np.pi, (nchannels, freqs.shape[-1])) * 1j
+            rand_freqs = freqs * np.exp(ph)
+
+            # do the inverse FFT
+            buf = np.fft.irfft(rand_freqs)
+
+            if mono:
+                buf = librosa.to_mono(buf.squeeze())
+
+            # window again the output buffer
+            buf *= window
+
+            # overlap-add the output
+            output = buf[..., :half_windowsize] + old_windowed_buf[..., half_windowsize:windowsize]
+            old_windowed_buf = buf
+
+            # clamp the values to -1..1
+            output = np.clip(output, -1, 1)
+
+            later = np.hstack((later, output))
+
+        now = later[..., :x.shape[-1]]
+        later = later[..., x.shape[-1]:]
+        return now * amp_factor
+    return func
+
+
 max_db = 5
 min_db = -120
 decibels_per_second = 200
 pitch_max_delta = 1.05
 pitch_per_second = 100
-sample_rate = DEFAULT_SAMPLE_RATE
+samplerate = 44100
 cutoff = 2000000000
+chord_notes = [[0, 4, 7], [0, 3, 7], [0, 3, 7], [0, 4, 7], [0, 4, 7], [0, 3, 7], [0, 3, 6]]
+chord_notes7 = [[0, 4, 7, 11], [0, 3, 7, 10], [0, 3, 7, 10], [0, 4, 7, 11], [0, 4, 7, 10], [0, 3, 7, 10], [0, 3, 6, 10]]
 detune = 0.02
-arpeggio_notes = [0, 4, 7]
-arpeggio_notes7 = [0, 4, 7, 10]
 arpeggio_dt = 0.25
 arpeggio_dv = 0.005
+paulstretch_window_size = 0.25
+paulstretch_amp_factor = 2
 waveforms = [np.sin,
              dsaw(detune=detune),
-             arpeggio(waveform=dsaw(detune=detune), notes=arpeggio_notes),
-             arpeggio(notes=arpeggio_notes),
-             partial(arpeggio, notes=arpeggio_notes7, dt=arpeggio_dt, dv=arpeggio_dv)]
+             partial(chord, waveform=dsaw(detune=detune)),
+             chord,
+             partial(chord, seventh=True, dt=arpeggio_dt, dv=arpeggio_dv),
+             partial(freeze, windowsize_seconds=paulstretch_window_size, amp_factor=paulstretch_amp_factor),
+             partial(loop, reverse=True)]
 channels = 1
 sleep = 0.0001
 
@@ -81,7 +203,7 @@ notes = [0, 2, 4, 5, 7, 9, 11, 12]
 show_notes = True
 in_port = 0
 out_port = 1
-
+sample_folder = 'samples'
 
 fg_color = Screen.COLOUR_RED
 bg_color = Screen.COLOUR_BLACK
@@ -127,8 +249,8 @@ midi_out.open_port(out_port)
 assert len(notes) >= num_controls
 assert len({line[0] for line in help_text}) == len(help_text)
 
-note_names = {0: 'C', 1: 'C#', 2: 'D', 3: 'D#', 4: 'E', 5: 'F', 6: 'F#', 7: 'G', 8: 'G#', 9: 'A', 10: 'A#', 11: 'B'}
-note_names.update({k+12: v.lower() for k, v in note_names.items()})
+note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+note_names += [x.lower() for x in note_names]
 
 
 def send_msg(cc, val):
@@ -140,13 +262,27 @@ class Soundscape:
         self.tracks = []
         self.reset()
 
-    def instantiate_waveform(self, waveform_or_closure):
+    def instantiate_waveform(self, waveform_or_closure, track=None):
+        if hasattr(waveform_or_closure, 'is_func_factory') or hasattr(waveform_or_closure, 'func') and hasattr(waveform_or_closure.func, 'is_func_factory'):
+            waveform_or_closure = waveform_or_closure(track=track, sample=self.samples[track])
+        return waveform_or_closure
+
+    def load_sample(self, sample=None):
+        if sample is not None:
+            self.sample = sample
+        files = librosa.util.find_files(sample_folder)
+        filename = files[self.sample % (len(files))]
         try:
-            waveform_or_closure = waveform_or_closure()
-        finally:
-            return waveform_or_closure
+            audio, _ = librosa.load(filename, sr=samplerate, mono=channels == 1)
+        except Exception as e:
+            print(e)
+            print('Error loading sample', filename)
+            sys.exit(1)
+        self.samples = np.array_split(audio, num_controls, axis=-1)
+        self.waveform = None
 
     def reset(self):
+        self.load_sample(0)
         self.waveform = waveforms[0]
         self.volumes = {k: min_db for k in range(num_controls)}
         for k in range(len(self.tracks))[::-1]:
@@ -155,14 +291,16 @@ class Soundscape:
         for k in range(num_controls):
             self.tracks.append(SineWave(pitch=notes[k], pitch_per_second=pitch_per_second, decibels=min_db,
                                         decibels_per_second=decibels_per_second, channels=channels,
-                                        samplerate=sample_rate, waveform=self.instantiate_waveform(self.waveform), cutoff=cutoff))
+                                        samplerate=samplerate, waveform=self.instantiate_waveform(self.waveform, track=k), cutoff=cutoff))
             self.tracks[k].play()
 
     def update(self, ctrl):
+        if self.sample != ctrl.sample:
+            self.load_sample(ctrl.sample)
         waveform = waveforms[ctrl.marker % len(waveforms)]
         for k in range(num_controls):
             if self.waveform != waveform:
-                self.tracks[k].set_waveform(self.instantiate_waveform(waveform))
+                self.tracks[k].set_waveform(self.instantiate_waveform(waveform, track=k))
             volume = min_db
             if not ctrl.is_effective_mute(k):
                 volume += ctrl.controls[k] / 127 * (max_db - min_db)
@@ -196,6 +334,7 @@ class Controller:
         self.transport = dict(self.new_transport)
         self.track = 0
         self.marker = 0
+        self.sample = 0
 
     def toggle_all(self, state_names, val):
         if external_led_mode:
@@ -256,6 +395,10 @@ class Controller:
                     self.marker -= 1
                 elif trans == 'marker_forward':
                     self.marker += 1
+                elif trans == 'rewind':
+                    self.sample -= 1
+                elif trans == 'forward':
+                    self.sample += 1
             if external_led_mode and trans in transport_led:
                 send_msg(transport_cc[trans], v)
         if refresh_knobs:
@@ -268,7 +411,7 @@ class Controller:
         return self.mute_override or not self.solo_defeats_mute and self.states['m'][k] or not self.states['s'][k] and any(self.states['s'].values())
 
 
-def loop(screen, ctrl, sound):
+def main_loop(screen, ctrl, sound):
     slider_size = screen.height // 2
     knob_size = min(screen.height // 2, max_knob_size)
     if knob_size % 2 == 0:
@@ -430,7 +573,7 @@ controller = Controller()
 soundscape = Soundscape()
 while True:
     try:
-        Screen.wrapper(loop, arguments=[controller, soundscape])
+        Screen.wrapper(main_loop, arguments=[controller, soundscape])
         break
     except ResizeScreenError:
         controller.new_controls.update(controller.controls)

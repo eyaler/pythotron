@@ -2,4 +2,4 @@ rtmidi
 asciimatics
 git+https://github.com/eyaler/pysinewave
 numpy
-scipy
+librosa
