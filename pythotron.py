@@ -1,6 +1,7 @@
 from asciimatics.screen import Screen
 from asciimatics.event import KeyboardEvent
 from asciimatics.exceptions import ResizeScreenError
+import copy
 from functools import partial
 import librosa
 import numpy as np
@@ -77,6 +78,7 @@ help_text = '''
 h    Help show/hide
 q    Quit
 i    Initialize
+p    reset midi Ports
 k    reset Knobs 
 l    reset sliders
 s    Solo on all tracks
@@ -107,16 +109,8 @@ solo_defeats_mute_y = 1
 mute_override_y = 2
 record_exclusive_y = 3
 
-midi_in = rtmidi.MidiIn()
-midi_out = rtmidi.MidiOut()
-in_ports = midi_in.get_ports()
-out_ports = midi_out.get_ports()
-in_port = [i for i, name in enumerate(in_ports) if name.lower().startswith(in_port_device.lower())][0]
-out_port = [i for i, name in enumerate(out_ports) if name.lower().startswith(out_port_device.lower())][0]
-print('In MIDI ports:', in_ports, in_port)
-print('Out MIDI ports:', out_ports, out_port)
-midi_in.open_port(in_port)
-midi_out.open_port(out_port)
+note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+note_names += [x.lower() for x in note_names]
 
 synth_names, synth_funcs = zip(*synths)
 assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
@@ -124,25 +118,6 @@ assert len(synth_funcs) == len(set(synth_funcs)), sorted(x for x in synth_funcs 
 assert len(notes) >= num_controls, (notes, num_controls)
 help_keys = [line[0].lower() for line in help_text if len(line) > 1 and line[1] in (' ', '\t')]
 assert len(help_keys) == len(set(help_keys)), sorted(x for x in help_keys if help_keys.count(x) > 1)
-
-note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-note_names += [x.lower() for x in note_names]
-
-
-def send_msg(cc, val):
-    midi_out.send_message([176, cc, val * 127])
-
-
-def blink_leds(blink_leds_delay=0.2):
-    if external_led_mode:
-        for cc in range(max_cc):
-            send_msg(cc, False)
-        time.sleep(blink_leds_delay)
-        for cc in range(max_cc):
-            send_msg(cc, True)
-        time.sleep(blink_leds_delay)
-        for cc in range(max_cc):
-            send_msg(cc, False)
 
 
 def hasattr_partial(f, attr):
@@ -204,7 +179,7 @@ class Soundscape:
         if self.synth != synth and 'cycle' in self.ctrl.transport and self.ctrl.transport['cycle'] and not synths[synth][0].lower().startswith('smp'):
             self.ctrl.transport['cycle'] = False
             if external_led_mode and 'cycle' in transport_led:
-                send_msg(transport_cc['cycle'], False)
+                self.ctrl.send_msg(transport_cc['cycle'], False)
             self.ctrl.toggle_knobs_mode()
 
         for k in range(num_controls):
@@ -228,6 +203,8 @@ class Soundscape:
 
 class Controller:
     def __init__(self):
+        self.midi_in = rtmidi.MidiIn()
+        self.midi_out = rtmidi.MidiOut()
         self.reset()
 
     def reset(self):
@@ -242,13 +219,43 @@ class Controller:
         self.reset_sliders()
         self.reset_knobs()
         self.new_states = {state_name: {k: False for k in range(num_controls)} for state_name in state_cc}
-        self.states = dict(self.new_states)
+        self.states = copy.deepcopy(self.new_states)
         self.new_transport = {k: False for k in transport_cc}
-        self.transport = dict(self.new_transport)
+        self.transport = self.new_transport.copy()
         self.track = 0
         self.marker = 0
         self.sample_num = 0
-        blink_leds()
+        self.reset_midi()
+        self.blink_leds()
+
+    def reset_midi(self):
+        self.midi_in.close_port()
+        self.midi_out.close_port()
+        in_ports = self.midi_in.get_ports()
+        out_ports = self.midi_out.get_ports()
+        in_port = [i for i, name in enumerate(in_ports) if name.lower().startswith(in_port_device.lower())][0]
+        out_port = [i for i, name in enumerate(out_ports) if name.lower().startswith(out_port_device.lower())][0]
+        print('In MIDI ports:', in_ports, in_port)
+        print('Out MIDI ports:', out_ports, out_port)
+        self.midi_in.open_port(in_port)
+        self.midi_out.open_port(out_port)
+        for state_name in self.states:
+            self.new_states[state_name].update(self.states[state_name])
+        self.new_transport.update(self.transport)
+
+    def send_msg(self, cc, val):
+        self.midi_out.send_message([176, cc, val * 127])
+
+    def blink_leds(self, blink_leds_delay=0.2):
+        if external_led_mode:
+            for cc in range(max_cc):
+                self.send_msg(cc, False)
+            time.sleep(blink_leds_delay)
+            for cc in range(max_cc):
+                self.send_msg(cc, True)
+            time.sleep(blink_leds_delay)
+            for cc in range(max_cc):
+                self.send_msg(cc, False)
 
     def reset_sliders(self):
         for k in range(num_controls):
@@ -323,7 +330,7 @@ class Controller:
                 self.new_controls[slider_cc + k] = self.controls[slider_cc + k]
                 self.new_controls[knob_cc + k] = self.controls[knob_cc + k]
                 if external_led_mode:
-                    send_msg(state_cc[state_name] + k, v)
+                    self.send_msg(state_cc[state_name] + k, v)
             self.states[state_name].update(self.new_states[state_name])
         self.new_states = {state_name: {} for state_name in self.states}
 
@@ -354,7 +361,7 @@ class Controller:
                 elif trans == 'forward':
                     self.sample_num += 1
             if external_led_mode and trans in transport_led:
-                send_msg(transport_cc[trans], v)
+                self.send_msg(transport_cc[trans], v)
         if refresh_knobs:
             for k in range(num_controls):
                 self.new_controls[knob_cc + k] = self.controls[knob_cc + k]
@@ -379,10 +386,10 @@ def main_loop(screen, ctrl, sound):
         if screen.has_resized():
             raise ResizeScreenError('Screen resized')
 
-        msg = midi_in.get_message()
+        msg = ctrl.midi_in.get_message()
         while msg:
             ctrl.update_single(*msg[0][1:])
-            msg = midi_in.get_message()
+            msg = ctrl.midi_in.get_message()
 
         ctrl.update_all()
         sound.update()
@@ -392,17 +399,17 @@ def main_loop(screen, ctrl, sound):
         if sample_disp != sound.sample_disp or synth_disp != sound.synth_disp:
             screen_refresh = True
             if sample_disp:
-                screen.print_at(' ' * len(sample_disp), screen.width - len(sample_disp), screen.height - 1, bg=bg_color)
+                screen.print_at(' ' * len(sample_disp), 0, 1, bg=bg_color)
             sample_disp = sound.sample_disp
             if synths[sound.synth][0].lower().startswith('smp'):
-                screen.print_at(sample_disp, screen.width - len(sample_disp), screen.height - 1,
+                screen.print_at(sample_disp, 0, 1,
                                 colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
             if synth_disp != sound.synth_disp:
                 if synth_disp:
-                    screen.print_at(' ' * len(synth_disp), screen.width - len(synth_disp), screen.height - 2, bg=bg_color)
+                    screen.print_at(' ' * len(synth_disp), 0, 0, bg=bg_color)
                 synth_disp = sound.synth_disp
-                screen.print_at(synth_disp, screen.width - len(synth_disp), screen.height - 2,
+                screen.print_at(synth_disp, 0, 0,
                                 colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
         for cc, v in ctrl.new_controls.items():
@@ -508,6 +515,8 @@ def main_loop(screen, ctrl, sound):
             elif c in ['i', 'ת']:  # Initialize
                 ctrl.reset()
                 sound.reset()
+            elif c in ['p', 'פ']:  # reset midi Ports
+                ctrl.reset_midi()
             elif c in ['k', 'ל']:  # reset Knobs
                 ctrl.reset_knobs()
             elif c in ['l', 'ך']:  # reset sliders
@@ -562,9 +571,10 @@ def main_loop(screen, ctrl, sound):
 
 controller = Controller()
 soundscape = Soundscape(controller)
-while True:
-    try:
-        Screen.wrapper(main_loop, arguments=[controller, soundscape])
-        break
-    except ResizeScreenError:
-        controller.new_controls.update(controller.controls)
+with controller.midi_in, controller.midi_out:
+    while True:
+        try:
+            Screen.wrapper(main_loop, arguments=[controller, soundscape])
+            break
+        except ResizeScreenError:
+            controller.new_controls.update(controller.controls)
