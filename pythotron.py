@@ -1,44 +1,53 @@
-import rtmidi
-import time
-import re
 from asciimatics.screen import Screen
 from asciimatics.event import KeyboardEvent
 from asciimatics.exceptions import ResizeScreenError
-from pysinewave import SineWave  # note: using the customized https://github.com/eyaler/pysinewave
-import numpy as np
 from functools import partial
 import librosa
+import numpy as np
+import os
+from pysinewave import SineWave  # note: using the customized https://github.com/eyaler/pysinewave
+import re
+import rtmidi
+from synths import dsaw, chord, loop, paulstretch
 import sys
-from synths_samplers import *
+import time
 
 
 max_db = 5
 min_db = -120
-decibels_per_second = 200
-pitch_max_delta = 1.05
-pitch_per_second = 100
+interp_hz_per_sec = 200
+synth_max_shift_semitones = 1.05
+interp_amp_per_sec = 100
 samplerate = 44100
 cutoff = 2000000000
 chord_notes = [[0, 4, 7], [0, 3, 7], [0, 3, 7], [0, 4, 7], [0, 4, 7], [0, 3, 7], [0, 3, 6]]
 chord_notes7 = [[0, 4, 7, 11], [0, 3, 7, 10], [0, 3, 7, 10], [0, 4, 7, 11], [0, 4, 7, 10], [0, 3, 7, 10], [0, 3, 6, 10]]
-detune = 0.02
-arpeggio_dt = 0.25
-arpeggio_dv = 0.005
-paulstretch_window_size = 0.25
-paulstretch_amp_factor = 2
-waveforms = [np.sin,
-             dsaw(detune=detune),
-             partial(chord, waveform=dsaw(detune=detune)),
-             partial(chord, chord_notes=chord_notes),
-             partial(chord, chord_notes=chord_notes7, dt=arpeggio_dt, dv=arpeggio_dv, samplerate=samplerate),
-             partial(freeze, windowsize_seconds=paulstretch_window_size, amp_factor=paulstretch_amp_factor, samplerate=samplerate),
-             partial(loop, reverse=True)]
-channels = 2
+detune_semitones = 0.02
+arpeggio_secs = 0.25
+arpeggio_amp_step = 0.005
+loop_slice_secs = 0.25
+loop_max_scrub_secs = None
+stretch_window_secs = 0.25
+stretch_slice_secs = 0.5
+stretch_max_scrub_secs = None
+stretch_advance_factor = 0.1  # == 1 / stretch_factor
+synths = [('sine', np.sin),
+          ('chord', partial(chord, chord_notes=chord_notes)),
+          ('arpeggio-up7', partial(chord, chord_notes=chord_notes7, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
+          ('dsaw', dsaw(detune_semitones=detune_semitones)),
+          ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones))),
+          ('smp:loop', partial(loop, slice_secs=loop_slice_secs, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
+          ('smp:stretch+rev', partial(paulstretch, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, extend_reversal=True, samplerate=samplerate)),
+          ('smp:stretch', partial(paulstretch, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
+          ('smp:freeze', partial(paulstretch, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
+          ]
+mono = True
 stereo_to_mono_tolerance = 1e-3
 sleep = 0.0001
 
 # this is for KORG nanoKONTROL2:
 num_controls = 8
+knob_center = 64
 slider_cc = 0
 knob_cc = 16
 state_cc = {'s': 32, 'm': 48, 'r': 64}
@@ -46,12 +55,12 @@ transport_cc = {'play': 41, 'stop': 42, 'rewind': 43, 'forward': 44, 'record': 4
 transport_led = ['play', 'stop', 'rewind', 'forward', 'record', 'cycle']
 cc2trans = {v: k for k, v in transport_cc.items()}
 external_led_mode = True  # requires setting LED Mode to "External" in KORG KONTROL Editor
+in_port_device = 'nanoKONTROL2 1'
+out_port_device = 'nanoKONTROL2 1'
 
 title = 'Pythotron'
 max_knob_size = 21
 notes = [0, 2, 4, 5, 7, 9, 11, 12]
-in_port = 0
-out_port = 1
 sample_folder = 'samples'
 
 fg_color = Screen.COLOUR_RED
@@ -66,6 +75,8 @@ help_text = '''
 h  Help show/hide
 q  Quit
 i  Initialize
+k  reset Knobs 
+l  reset sliders
 s  Solo on all tracks
 a  solo off All tracks
 d  solo exclusive mode toggle
@@ -77,6 +88,9 @@ r  Record-arm on all tracks
 e  record-arm off all tracks
 t  record-arm exclusive mode Toggle
 u  solo/mute/record-arm off all tracks
+track rewind/forward   semitone scale shift
+marker rewind/forward  change synths and samplers
+rewind/forward         change sample file
 '''.strip().splitlines()
 
 solo_exclusive_text = 'SOLO EXCL'
@@ -90,13 +104,20 @@ record_exclusive_y = 3
 
 midi_in = rtmidi.MidiIn()
 midi_out = rtmidi.MidiOut()
-print(midi_in.get_ports())
-print(midi_out.get_ports())
-midi_in.open_port(in_port)
-midi_out.open_port(out_port)
+in_ports = midi_in.get_ports()
+out_ports = midi_out.get_ports()
+print('In MIDI ports:', in_ports)
+print('Out MIDI ports:', out_ports)
+in_port = [i for i, name in enumerate(in_ports) if name.lower().startswith(in_port_device.lower())][0]
+out_port = [i for i, name in enumerate(out_ports) if name.lower().startswith(in_port_device.lower())][0]
+midi_in.open_port()
+midi_out.open_port()
 
+synth_names = [s[0] for s in synths]
+assert len(synth_names) == len(set(synth_names))
 assert len(notes) >= num_controls
-assert len({line[0] for line in help_text}) == len(help_text)
+help_keys = [line[0].lower() for line in help_text if line[1] in (' ', '\t')]
+assert len(help_keys) == len(set(help_keys))
 
 note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 note_names += [x.lower() for x in note_names]
@@ -111,63 +132,64 @@ def hasattr_partial(f, attr):
 
 
 class Soundscape:
-    def __init__(self):
+    def __init__(self, ctrl):
         self.tracks = []
+        self.ctrl = ctrl
         self.reset()
 
-    def instantiate_waveform(self, waveform_or_closure, track=None):
-        if hasattr_partial(waveform_or_closure, 'is_func_factory'):
-            waveform_or_closure = waveform_or_closure(track=track, sample=self.samples[track])
-        return waveform_or_closure
+    def instantiate_waveform(self, waveform, track=None):
+        if hasattr_partial(waveform, 'is_func_factory'):
+            waveform = waveform(track=track, ctrl=self.ctrl, sample=self.sample)
+        return waveform
 
-    def load_sample(self, sample=None):
-        if sample is not None:
-            self.sample = sample
+    def load_sample(self, sample_num=None):
+        if sample_num is not None:
+            self.sample_num = sample_num
         files = librosa.util.find_files(sample_folder)
-        filename = files[self.sample % (len(files))]
+        self.sample_file = files[sample_num % (len(files))]
         try:
-            audio, _ = librosa.load(filename, sr=samplerate, mono=channels == 1)
+            self.sample, _ = librosa.load(self.sample_file, sr=samplerate, mono=mono)
         except Exception as e:
             print(e)
-            print('Error loading sample', filename)
+            print('Error loading sample', self.sample_file)
             sys.exit(1)
-        if len(audio.shape) == 2 and np.allclose(audio[0], audio[1], atol=stereo_to_mono_tolerance):
-            audio = librosa.to_mono(audio)
-        self.samples = np.array_split(audio, num_controls, axis=-1)
-        self.waveform = None
+        if len(self.sample.shape) == 2 and np.allclose(self.sample[0], self.sample[1], atol=stereo_to_mono_tolerance):
+            self.sample = librosa.to_mono(self.sample)
+        self.synth = None
 
     def reset(self):
         self.load_sample(0)
-        self.waveform = waveforms[0]
+        self.synth = synths[0]
         self.volumes = {k: min_db for k in range(num_controls)}
         for k in range(len(self.tracks))[::-1]:
             self.tracks[k].stop()
             del self.tracks[k]
         for k in range(num_controls):
-            self.tracks.append(SineWave(pitch=notes[k], pitch_per_second=pitch_per_second, decibels=min_db,
-                                        decibels_per_second=decibels_per_second, channels=channels,
-                                        samplerate=samplerate, waveform=self.instantiate_waveform(self.waveform, track=k), cutoff=cutoff))
+            self.tracks.append(SineWave(pitch=notes[k], pitch_per_second=interp_hz_per_sec, decibels=min_db,
+                                        decibels_per_second=interp_amp_per_sec, channels=1 if mono else 2,
+                                        samplerate=samplerate, waveform=self.instantiate_waveform(self.synth[1], track=k), cutoff=cutoff))
             self.tracks[k].play()
 
-    def update(self, ctrl):
-        if self.sample != ctrl.sample:
-            self.load_sample(ctrl.sample)
-        waveform = waveforms[ctrl.marker % len(waveforms)]
+    def update(self):
+        if self.sample_num != self.ctrl.sample_num:
+            self.load_sample(self.ctrl.sample_num)
+        synth = synths[self.ctrl.marker % len(synths)]
         for k in range(num_controls):
-            if self.waveform != waveform:
-                self.tracks[k].set_waveform(self.instantiate_waveform(waveform, track=k))
+            if self.synth != synth:
+                self.tracks[k].set_waveform(self.instantiate_waveform(synth[1], track=k))
             volume = min_db
-            if not ctrl.is_effective_mute(k):
-                volume += ctrl.controls[k] / 127 * (max_db - min_db)
+            if not self.ctrl.is_effective_mute(k):
+                volume += self.ctrl.controls[k] / 127 * (max_db - min_db)
             if volume != self.volumes[k]:
                 self.tracks[k].set_volume(volume)
                 self.volumes[k] = volume
-        self.waveform = waveform
+        self.synth = synth
 
-        for cc, v in ctrl.new_controls.items():
-            k = cc - knob_cc
-            if 0 <= k < num_controls:
-                self.tracks[k].set_pitch(notes[k] + ctrl.track + (v * 2 / 127 - 1) * pitch_max_delta)
+        if not hasattr_partial(synth[1], 'skip_pitch_control'):
+            for cc, v in self.ctrl.new_controls.items():
+                k = cc - knob_cc
+                if 0 <= k < num_controls:
+                    self.tracks[k].set_pitch(notes[k] + self.ctrl.track + self.ctrl.norm_knob(v) * synth_max_shift_semitones)
 
 
 class Controller:
@@ -181,21 +203,51 @@ class Controller:
         self.record_exclusive = False
         self.show_help = False
         self.controls = {}
-        self.new_controls = {slider_cc + k: 0 for k in range(num_controls)} | {knob_cc + k: 64 for k in
-                                                                               range(num_controls)}
+        self.new_controls = {}
+        self.reset_sliders()
+        self.reset_knobs()
         self.new_states = {state_name: {k: False for k in range(num_controls)} for state_name in state_cc}
         self.states = dict(self.new_states)
         self.new_transport = {k: False for k in transport_cc}
         self.transport = dict(self.new_transport)
         self.track = 0
         self.marker = 0
-        self.sample = 0
+        self.sample_num = 0
+
+    def reset_knobs(self):
+        for k in range(num_controls):
+            self.controls[k + knob_cc] = knob_center
+            self.new_controls[k + knob_cc] = knob_center
+
+    def reset_sliders(self):
+        for k in range(num_controls):
+            self.controls[k + slider_cc] = 0
+            self.new_controls[k + slider_cc] = 0
+
+    @staticmethod
+    def norm_knob(v):
+        return min(v / knob_center - 1, 1)
+
+    def get_knob(self, k):
+        if k + knob_cc in self.controls:
+            return self.norm_knob(self.controls[k + knob_cc])
+        return 0
+
+    def get_slider(self, k):
+        if k + slider_cc in self.controls:
+            return self.controls[k + slider_cc] / 127
+        return 0
+
+    @staticmethod
+    def relative_track(k):
+        return k / max(num_controls - 1, 1)
 
     def toggle_all(self, state_names, val):
         if external_led_mode:
             for state_name in state_names:
-                for k in range(num_controls):
-                    self.new_states[state_name][k] = val
+                if state_name in state_cc:
+                    for k in range(num_controls):
+                        self.new_states[state_name][k] = val
 
     def update_single(self, cc, val):
         cc = int(cc)
@@ -217,9 +269,9 @@ class Controller:
 
         if self.solo_exclusive or self.record_exclusive:
             for k in range(num_controls):
-                if self.solo_exclusive and any(self.new_states['s'].values()) and self.states['s'][k] and k not in self.new_states['s']:
+                if self.solo_exclusive and 's' in state_cc and (self.new_states['s'].values()) and self.states['s'][k] and k not in self.new_states['s']:
                     self.new_states['s'][k] = False
-                if self.record_exclusive and any(self.new_states['r'].values()) and self.states['r'][k] and k not in self.new_states['r']:
+                if self.record_exclusive and 'r' in state_cc and any(self.new_states['r'].values()) and self.states['r'][k] and k not in self.new_states['r']:
                     self.new_states['r'][k] = False
 
         for state_name in self.new_states:
@@ -248,14 +300,12 @@ class Controller:
                     refresh_knobs = True
                 elif trans == 'marker_rewind':
                     self.marker -= 1
-                    refresh_knobs = True
                 elif trans == 'marker_forward':
                     self.marker += 1
-                    refresh_knobs = True
                 elif trans == 'rewind':
-                    self.sample -= 1
+                    self.sample_num -= 1
                 elif trans == 'forward':
-                    self.sample += 1
+                    self.sample_num += 1
             if external_led_mode and trans in transport_led:
                 send_msg(transport_cc[trans], v)
         if refresh_knobs:
@@ -265,7 +315,7 @@ class Controller:
         self.new_transport = {}
 
     def is_effective_mute(self, k):
-        return self.mute_override or not self.solo_defeats_mute and self.states['m'][k] or not self.states['s'][k] and any(self.states['s'].values())
+        return self.mute_override or not self.solo_defeats_mute and 'm' in self.states and self.states['m'][k] or 's' in self.states and not self.states['s'][k] and any(self.states['s'].values())
 
 
 def main_loop(screen, ctrl, sound):
@@ -275,6 +325,8 @@ def main_loop(screen, ctrl, sound):
         knob_size += 1
     screen.clear()
     screen.set_title(title)
+    synth_name = None
+    sample_name = None
     while True:
         if screen.has_resized():
             raise ResizeScreenError('Screen resized')
@@ -285,7 +337,27 @@ def main_loop(screen, ctrl, sound):
             msg = midi_in.get_message()
 
         ctrl.update_all()
-        sound.update(ctrl)
+        sound.update()
+
+        screen_refresh = bool(ctrl.new_controls)
+
+        if sample_name != os.path.basename(sound.sample_file) or synth_name != sound.synth[0]:
+            screen_refresh = True
+            if sample_name:
+                screen.print_at(' ' * len(sample_name), screen.width - len(sample_name), screen.height - 1, bg=bg_color)
+            sample_name = os.path.basename(sound.sample_file)
+            if sound.synth[0].lower().startswith('smp'):
+                screen.print_at(sample_name, screen.width - len(sample_name), screen.height - 1,
+                                colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
+
+            if synth_name != sound.synth[0]:
+                if synth_name:
+                    screen.print_at(' ' * len(synth_name), screen.width - len(synth_name), screen.height - 2, bg=bg_color)
+                    if synth_name.startswith('smp') != sound.synth[0].lower().startswith('smp'):
+                        ctrl.reset_knobs()
+                synth_name = sound.synth[0]
+                screen.print_at(synth_name, screen.width - len(synth_name), screen.height - 2,
+                                colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
         for cc, v in ctrl.new_controls.items():
             k = cc - slider_cc
@@ -295,18 +367,18 @@ def main_loop(screen, ctrl, sound):
             else:
                 k = cc - knob_cc
                 control_size = knob_size
-                if hasattr_partial(sound.waveform, 'show_track_numbers'):
+                if hasattr_partial(sound.synth[1], 'show_track_numbers'):
                     label = str(k+1)[::-1]
                 else:
-                    label = note_names[(notes[k] + ctrl.track) % len(note_names)].ljust(2)
+                    label = note_names[(notes[k] + ctrl.track) % len(note_names)]
 
-                for i, char in enumerate(label):
+                for i, char in enumerate(label.ljust(2)):
                     screen.print_at(char,
                                     int((k + 0.5) * screen.width / num_controls),
                                     int(int((knob_size - 1) / 4 + 1) - knob_size / 4 - i + screen.height / 4),
-                                    colour=solo_color if ctrl.states['s'][k] else fg_color,
-                                    attr=Screen.A_REVERSE,
-                                    bg=record_color if ctrl.states['r'][k] else bg_color)
+                                    colour=solo_color if 's' in ctrl.states and ctrl.states['s'][k] else fg_color,
+                                    attr=Screen.A_REVERSE if char != ' ' else Screen.A_NORMAL,
+                                    bg=record_color if 'r' in ctrl.states and ctrl.states['r'][k] and char != ' ' else bg_color)
             val_j = int(min(v, 126) / 127 * control_size)
             for j in range(control_size):
                 text = '   '
@@ -320,8 +392,8 @@ def main_loop(screen, ctrl, sound):
                         hidden = True
                 else:
                     if j == val_j:
-                        text = '%2d' % (v - 64)
-                        if v > 64:
+                        text = '%2d' % (v - knob_center)
+                        if v > knob_center:
                             text += '+'
                         elif len(text) < 3:
                             text += ' '
@@ -341,29 +413,33 @@ def main_loop(screen, ctrl, sound):
                 screen.print_at(text,
                                 int((k + 0.5) * screen.width / num_controls - 1 + 2 * (j - (knob_size - 1) / 2 + (1 if j < (knob_size - 1) / 2 else -1) * (abs(abs(j - (knob_size - 1) / 2) - (knob_size - 1) / 4 - 1) * 2 + 1) * (abs(j - ((knob_size - 1) / 2)) >= (knob_size - 1) / 4 + 1)) * (not is_slider)),
                                 int(((slider_size / 2 - j) if is_slider else (abs(j - (knob_size - 1) / 2) - knob_size / 4)) + (is_slider + 0.5) * screen.height / 2 - (is_slider and slider_size / 2 >= screen.height / 4)),
-                                colour=solo_color if ctrl.states['s'][k] else fg_color,
-                                attr=Screen.A_NORMAL if ctrl.states['m'][k] else Screen.A_BOLD,
-                                bg=record_color if ctrl.states['r'][k] and not hidden else bg_color)
+                                colour=solo_color if 's' in ctrl.states and ctrl.states['s'][k] else fg_color,
+                                attr=Screen.A_NORMAL if 'm' in ctrl.states and ctrl.states['m'][k] else Screen.A_BOLD,
+                                bg=record_color if 'r' in ctrl.states and ctrl.states['r'][k] and not hidden else bg_color)
 
         if ctrl.solo_exclusive:
+            screen_refresh = True
             screen.print_at(solo_exclusive_text, screen.width - len(solo_exclusive_text), solo_exclusive_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
         if ctrl.solo_defeats_mute:
+            screen_refresh = True
             screen.print_at(solo_defeats_mute_text, screen.width - len(solo_defeats_mute_text), solo_defeats_mute_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
         if ctrl.mute_override:
+            screen_refresh = True
             screen.print_at(mute_override_text, screen.width - len(mute_override_text), mute_override_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
         if ctrl.record_exclusive:
+            screen_refresh = True
             screen.print_at(record_exclusive_text, screen.width - len(record_exclusive_text), record_exclusive_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
         help_x = max(0, (screen.width - len(max(help_text, key=len))) // 2)
         help_y = max(0, (screen.height - len(help_text)) // 2)
         if ctrl.show_help:
+            screen_refresh = True
             for i, line in enumerate(help_text):
                 screen.print_at(line, help_x, help_y + i, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
-        screen_refresh = bool(ctrl.new_controls) or ctrl.mute_override or ctrl.solo_exclusive or ctrl.solo_defeats_mute or ctrl.record_exclusive or ctrl.show_help
         ctrl.new_controls = {}
         ev = screen.get_event()
         if isinstance(ev, KeyboardEvent):  # note: Hebrew keys assume SI 1452-2 / 1452-3 layout
@@ -386,6 +462,10 @@ def main_loop(screen, ctrl, sound):
             elif c in ['i', 'ת']:  # Initialize
                 ctrl.reset()
                 sound.reset()
+            elif c in ['k', 'ל']:  # reset Knobs
+                ctrl.reset_knobs()
+            elif c in ['l', 'ך']:  # reset sliders
+                ctrl.reset_sliders()
             elif c in ['s', 'ד']:  # Solo on all tracks
                 ctrl.toggle_all('s', True)
             elif c in ['a', 'ש']:  # solo off All tracks
@@ -431,7 +511,7 @@ def main_loop(screen, ctrl, sound):
 
 
 controller = Controller()
-soundscape = Soundscape()
+soundscape = Soundscape(controller)
 while True:
     try:
         Screen.wrapper(main_loop, arguments=[controller, soundscape])

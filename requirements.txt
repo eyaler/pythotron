@@ -1,5 +1,5 @@
-rtmidi
 asciimatics
-git+https://github.com/eyaler/pysinewave
-numpy
 librosa
+numpy
+rtmidi
+git+https://github.com/eyaler/pysinewave

@@ -15,39 +15,42 @@ Supported controls:
   - mute override all
   - solo defeats mute
 
-Musical metaphors:
-  - Fader Organ:
-    - tracks = notes
-    - slider = volume
-    - knob = pitch shift
-    - track rewind/forward = semitone scale shift
-    - marker rewind/forward = change waveform
-    - rewind/forward = change sample
-  - Finger Theremin (TBD)
-  - Phased Looper (TBD)
+Musical instruments:
+- Fader Organ:
+  - tracks = notes or sample slices
+  - sliders = volume
+  - knobs = pitch shift or temporal scrub
+- Finger Theremin (TBD)
+- Phased Looper (TBD)
 
-Sound effects:
-  - Sine waves
-  - Chords
-  - Arpeggio 
-  - Detuned saw
-  - Sample slicer +
-    - Looper
-    - [Paulstretch](http://hypermammut.sourceforge.net/paulstretch) freeze (oh yes)
-  
+Synths:
+- Sine waves
+- Chords
+- Arpeggio 
+- Detuned saw
+- Sampler + slicer +
+  - Looper
+  - [Paulstretch](http://hypermammut.sourceforge.net/paulstretch) freeze (oh yeah!) 
+  - Paulstretch stretch looper
+    
 Setup:
 - pip install -r requirements.txt
 - Code defaults settings are for KORG nanoKONTROL2
 - In KORG KONTROL Editor:
-  - Either load the pythotron.nktrl2_data scene file included here, or:
-  - Set Control Mode to CC
-  - Set LED Mode to External, to allow programmatic control 
-  - Set all solo/mute/record Button Behavior to Toggle
-  - Set transport play/record Button Behavior to Toggle
-  - Other transport buttons should be set to Momentary
+  - If you have a KORG nanoKONTROL2, you can load the pythotron.nktrl2_data scene file included here
+  - Otherwise:
+    - Set Control Mode to CC
+    - Set LED Mode to External, to allow programmatic control 
+    - Set all solo/mute/record Button Behavior to Toggle
+    - Set transport play/record Button Behavior to Toggle
+    - Other transport buttons should be set to Momentary
 - Otherwise, if LED Mode is Internal, change external_led_mode to: False
 - Put your audio samples in "samples" folder
 - For MP3 support [install ffmpeg or gstreamer](https://github.com/librosa/librosa#audioread-and-mp3-support)
+
+Known issues:
+- Stereo samples are rendered as mono
+- High CPU settings are required to avoid clicks
 
 I began this because I could not find an existing easy plug-and-play visual or audial monitor for my controller. 
 But if it was not evident, I am using this as a platform to learn more about music theory, audio effects and sound synthesis, 
