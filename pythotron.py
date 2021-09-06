@@ -72,25 +72,26 @@ overlay_attr = Screen.A_BOLD
 overlay_bg_color = Screen.COLOUR_BLUE
 
 help_text = '''
-h  Help show/hide
-q  Quit
-i  Initialize
-k  reset Knobs 
-l  reset sliders
-s  Solo on all tracks
-a  solo off All tracks
-d  solo exclusive mode toggle
-f  solo deFeats mute toggle
-m  Mute on all tracks
-n  mute off all tracks
-o  mute Override all tracks toggle
-r  Record-arm on all tracks
-e  record-arm off all tracks
-t  record-arm exclusive mode Toggle
-u  solo/mute/record-arm off all tracks
-track rewind/forward   semitone scale shift
-marker rewind/forward  change synths and samplers
-rewind/forward         change sample file
+h    Help show/hide
+q    Quit
+i    Initialize
+k    reset Knobs 
+l    reset sliders
+s    Solo on all tracks
+a    solo off All tracks
+d    solo exclusive mode toggle
+f    solo deFeats mute toggle
+m    Mute on all tracks
+n    mute off all tracks
+o    mute Override all tracks toggle
+r    Record-arm on all tracks
+e    record-arm off all tracks
+t    record-arm exclusive mode Toggle
+u    solo/mute/record-arm off all tracks
+1-0  choose synth
+track rewind/forward     semitone scale shift
+marker rewind/forward    change synths and samplers
+rewind/forward           change sample file
 '''.strip().splitlines()
 
 solo_exclusive_text = 'SOLO EXCL'
@@ -113,11 +114,12 @@ out_port = [i for i, name in enumerate(out_ports) if name.lower().startswith(in_
 midi_in.open_port()
 midi_out.open_port()
 
-synth_names = [s[0] for s in synths]
-assert len(synth_names) == len(set(synth_names))
-assert len(notes) >= num_controls
+synth_names, synth_funcs = zip(*synths)
+assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
+assert len(synth_funcs) == len(set(synth_funcs)), sorted(x for x in synth_funcs if synth_funcs.count(x) > 1)
+assert len(notes) >= num_controls, (notes, num_controls)
 help_keys = [line[0].lower() for line in help_text if line[1] in (' ', '\t')]
-assert len(help_keys) == len(set(help_keys))
+assert len(help_keys) == len(set(help_keys)), sorted(x for x in help_keys if help_keys.count(x) > 1)
 
 note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 note_names += [x.lower() for x in note_names]
@@ -137,7 +139,16 @@ class Soundscape:
         self.ctrl = ctrl
         self.reset()
 
-    def instantiate_waveform(self, waveform, track=None):
+    @property
+    def synth_disp(self):
+        return f'{self.synth + 1}.' + synths[self.synth][0]
+
+    @property
+    def sample_disp(self):
+        return self.sample_path.split(sample_folder + os.sep, 1)[-1]
+
+    def instantiate_waveform(self, synth, track=None):
+        waveform = synths[synth][1]
         if hasattr_partial(waveform, 'is_func_factory'):
             waveform = waveform(track=track, ctrl=self.ctrl, sample=self.sample)
         return waveform
@@ -146,12 +157,12 @@ class Soundscape:
         if sample_num is not None:
             self.sample_num = sample_num
         files = librosa.util.find_files(sample_folder)
-        self.sample_file = files[sample_num % (len(files))]
+        self.sample_path = files[sample_num % (len(files))]
         try:
-            self.sample, _ = librosa.load(self.sample_file, sr=samplerate, mono=mono)
+            self.sample, _ = librosa.load(self.sample_path, sr=samplerate, mono=mono)
         except Exception as e:
             print(e)
-            print('Error loading sample', self.sample_file)
+            print('Error loading sample', self.sample_path)
             sys.exit(1)
         if len(self.sample.shape) == 2 and np.allclose(self.sample[0], self.sample[1], atol=stereo_to_mono_tolerance):
             self.sample = librosa.to_mono(self.sample)
@@ -159,7 +170,7 @@ class Soundscape:
 
     def reset(self):
         self.load_sample(0)
-        self.synth = synths[0]
+        self.synth = 0
         self.volumes = {k: min_db for k in range(num_controls)}
         for k in range(len(self.tracks))[::-1]:
             self.tracks[k].stop()
@@ -167,16 +178,16 @@ class Soundscape:
         for k in range(num_controls):
             self.tracks.append(SineWave(pitch=notes[k], pitch_per_second=interp_hz_per_sec, decibels=min_db,
                                         decibels_per_second=interp_amp_per_sec, channels=1 if mono else 2,
-                                        samplerate=samplerate, waveform=self.instantiate_waveform(self.synth[1], track=k), cutoff=cutoff))
+                                        samplerate=samplerate, waveform=self.instantiate_waveform(self.synth, track=k), cutoff=cutoff))
             self.tracks[k].play()
 
     def update(self):
         if self.sample_num != self.ctrl.sample_num:
             self.load_sample(self.ctrl.sample_num)
-        synth = synths[self.ctrl.marker % len(synths)]
+        synth = self.ctrl.marker % len(synths)
         for k in range(num_controls):
             if self.synth != synth:
-                self.tracks[k].set_waveform(self.instantiate_waveform(synth[1], track=k))
+                self.tracks[k].set_waveform(self.instantiate_waveform(synth, track=k))
             volume = min_db
             if not self.ctrl.is_effective_mute(k):
                 volume += self.ctrl.controls[k] / 127 * (max_db - min_db)
@@ -185,7 +196,7 @@ class Soundscape:
                 self.volumes[k] = volume
         self.synth = synth
 
-        if not hasattr_partial(synth[1], 'skip_pitch_control'):
+        if not hasattr_partial(synths[synth][1], 'skip_pitch_control'):
             for cc, v in self.ctrl.new_controls.items():
                 k = cc - knob_cc
                 if 0 <= k < num_controls:
@@ -204,6 +215,7 @@ class Controller:
         self.show_help = False
         self.controls = {}
         self.new_controls = {}
+        self.controls_memory = {}
         self.reset_sliders()
         self.reset_knobs()
         self.new_states = {state_name: {k: False for k in range(num_controls)} for state_name in state_cc}
@@ -214,15 +226,23 @@ class Controller:
         self.marker = 0
         self.sample_num = 0
 
-    def reset_knobs(self):
-        for k in range(num_controls):
-            self.controls[k + knob_cc] = knob_center
-            self.new_controls[k + knob_cc] = knob_center
-
     def reset_sliders(self):
         for k in range(num_controls):
             self.controls[k + slider_cc] = 0
             self.new_controls[k + slider_cc] = 0
+            self.controls_memory[k + slider_cc] = 0
+
+    def reset_knobs(self):
+        for k in range(num_controls):
+            self.controls[k + knob_cc] = knob_center
+            self.new_controls[k + knob_cc] = knob_center
+            self.controls_memory[k + knob_cc] = knob_center
+
+    def toggle_knobs_mode(self):
+        for k in range(num_controls):
+            self.new_controls[k + knob_cc] = self.controls_memory[k + knob_cc]
+            self.controls_memory[k + knob_cc] = self.controls[k + knob_cc]
+            self.controls[k + knob_cc] = self.new_controls[k + knob_cc]
 
     @staticmethod
     def norm_knob(v):
@@ -325,8 +345,9 @@ def main_loop(screen, ctrl, sound):
         knob_size += 1
     screen.clear()
     screen.set_title(title)
-    synth_name = None
-    sample_name = None
+    synth_disp = None
+    sample_disp = None
+
     while True:
         if screen.has_resized():
             raise ResizeScreenError('Screen resized')
@@ -341,22 +362,22 @@ def main_loop(screen, ctrl, sound):
 
         screen_refresh = bool(ctrl.new_controls)
 
-        if sample_name != os.path.basename(sound.sample_file) or synth_name != sound.synth[0]:
+        if sample_disp != sound.sample_disp or synth_disp != sound.synth_disp:
             screen_refresh = True
-            if sample_name:
-                screen.print_at(' ' * len(sample_name), screen.width - len(sample_name), screen.height - 1, bg=bg_color)
-            sample_name = os.path.basename(sound.sample_file)
-            if sound.synth[0].lower().startswith('smp'):
-                screen.print_at(sample_name, screen.width - len(sample_name), screen.height - 1,
+            if sample_disp:
+                screen.print_at(' ' * len(sample_disp), screen.width - len(sample_disp), screen.height - 1, bg=bg_color)
+            sample_disp = sound.sample_disp
+            if synths[sound.synth][0].lower().startswith('smp'):
+                screen.print_at(sample_disp, screen.width - len(sample_disp), screen.height - 1,
                                 colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
-            if synth_name != sound.synth[0]:
-                if synth_name:
-                    screen.print_at(' ' * len(synth_name), screen.width - len(synth_name), screen.height - 2, bg=bg_color)
-                    if synth_name.startswith('smp') != sound.synth[0].lower().startswith('smp'):
-                        ctrl.reset_knobs()
-                synth_name = sound.synth[0]
-                screen.print_at(synth_name, screen.width - len(synth_name), screen.height - 2,
+            if synth_disp != sound.synth_disp:
+                if synth_disp:
+                    screen.print_at(' ' * len(synth_disp), screen.width - len(synth_disp), screen.height - 2, bg=bg_color)
+                    if synth_disp.startswith('smp') != synths[sound.synth][0].lower().startswith('smp'):
+                        ctrl.toggle_knobs_mode()
+                synth_disp = sound.synth_disp
+                screen.print_at(synth_disp, screen.width - len(synth_disp), screen.height - 2,
                                 colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
         for cc, v in ctrl.new_controls.items():
@@ -367,7 +388,7 @@ def main_loop(screen, ctrl, sound):
             else:
                 k = cc - knob_cc
                 control_size = knob_size
-                if hasattr_partial(sound.synth[1], 'show_track_numbers'):
+                if hasattr_partial(synths[sound.synth][1], 'show_track_numbers'):
                     label = str(k+1)[::-1]
                 else:
                     label = note_names[(notes[k] + ctrl.track) % len(note_names)]
@@ -385,14 +406,14 @@ def main_loop(screen, ctrl, sound):
                 hidden = False
                 if is_slider:
                     if j == val_j:
-                        text = '%3d' % v
+                        text = f'{v:3}'
                     elif j < val_j:
                         text = '...'
                     else:
                         hidden = True
                 else:
                     if j == val_j:
-                        text = '%2d' % (v - knob_center)
+                        text = f'{v - knob_center:2}'
                         if v > knob_center:
                             text += '+'
                         elif len(text) < 3:
@@ -504,6 +525,10 @@ def main_loop(screen, ctrl, sound):
                                     record_exclusive_y, bg=bg_color)
             elif c in ['u', 'ו']:  # solo/mute/record-arm off all tracks
                 ctrl.toggle_all('msr', False)
+            elif c and '0' <= c <= '9':
+                num = (int(c) - 1) % 10
+                if num < len(synths):
+                    ctrl.marker = num
 
         if screen_refresh:
             screen.refresh()
