@@ -19,7 +19,7 @@ Musical instruments:
 - Fader Organ:
   - tracks = notes or sample slices
   - sliders = volume
-  - knobs = pitch shift or temporal scrub
+  - knobs = pitch bend or temporal scrub
 - Finger Theremin (TBD)
 - Phased Looper (TBD)
 

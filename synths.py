@@ -110,8 +110,8 @@ def loop(slice_secs=0.25, max_scrub_secs=None, extend_reversal=False, samplerate
     return func
 
 
-def paulstretch(max_shift_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max_scrub_secs=None, advance_factor=0, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
-    # adapted from https://github.com/paulnasca/paulstretch_python
+def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max_scrub_secs=None, advance_factor=0, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
+    # adapted from https://github.com/paulnasca/paulstretch_python, https://github.com/paulnasca/paulstretch_cpp
     # we currently use pysinewave which is (possibly duplicated) mono, so have to convert result to mono
     track = kwargs['track']
     ctrl = kwargs['ctrl']
@@ -185,7 +185,7 @@ def paulstretch(max_shift_semitones=12, windowsize_secs=0.25, slice_secs=0.5, ma
                 shifted_freqs = freqs
                 if not scrub_mode and knob:
                     shifted_freqs = np.zeros_like(freqs)
-                    rap = 2 ** (knob * max_shift_semitones / 12)
+                    rap = 2 ** (knob * max_bend_semitones / 12)
                     if rap < 1:
                         for i in range(len(freqs)):
                             i2 = int(i * rap)
@@ -235,6 +235,6 @@ loop.is_func_factory = True
 paulstretch.is_func_factory = True
 
 loop.show_track_numbers = True
-loop.skip_pitch_control = True
+loop.skip_external_pitch_control = True
 paulstretch.show_track_numbers = True
-paulstretch.skip_pitch_control = True
+paulstretch.skip_external_pitch_control = True

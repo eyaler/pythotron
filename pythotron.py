@@ -16,8 +16,8 @@ import time
 max_db = 5
 min_db = -120
 interp_hz_per_sec = 200
-synth_max_shift_semitones = 1.05
-sampler_max_shift_semitones = 1.5
+synth_max_bend_semitones = 1.05
+sampler_max_bend_semitones = 1.5
 interp_amp_per_sec = 100
 samplerate = 44100
 cutoff = 2000000000
@@ -38,9 +38,9 @@ synths = [('sine', np.sin),
           ('dsaw', dsaw(detune_semitones=detune_semitones)),
           ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones))),
           ('smp:loop', partial(loop, slice_secs=loop_slice_secs, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
-          ('smp:stretch+rev', partial(paulstretch, max_shift_semitones=sampler_max_shift_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, extend_reversal=True, samplerate=samplerate)),
-          ('smp:stretch', partial(paulstretch, max_shift_semitones=sampler_max_shift_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
-          ('smp:freeze', partial(paulstretch, max_shift_semitones=sampler_max_shift_semitones, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
+          ('smp:stretch+rev', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, extend_reversal=True, samplerate=samplerate)),
+          ('smp:stretch', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
+          ('smp:freeze', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
           ]
 mono = True
 stereo_to_mono_tolerance = 1e-3
@@ -92,7 +92,7 @@ t    record-arm exclusive mode Toggle
 u    solo/mute/record-arm off all tracks
 1-0  choose synth
 
-cycle                    toggle pitch shift / temporal scrub 
+cycle                    toggle pitch bend / temporal scrub 
 track rewind/forward     semitone scale shift
 marker rewind/forward    change synths and samplers
 rewind/forward           change sample file
@@ -133,15 +133,16 @@ def send_msg(cc, val):
     midi_out.send_message([176, cc, val * 127])
 
 
-def blink(blink_delay=0.2):
-    for cc in range(max_cc):
-        send_msg(cc, False)
-    time.sleep(blink_delay)
-    for cc in range(max_cc):
-        send_msg(cc, True)
-    time.sleep(blink_delay)
-    for cc in range(max_cc):
-        send_msg(cc, False)
+def blink_leds(blink_leds_delay=0.2):
+    if external_led_mode:
+        for cc in range(max_cc):
+            send_msg(cc, False)
+        time.sleep(blink_leds_delay)
+        for cc in range(max_cc):
+            send_msg(cc, True)
+        time.sleep(blink_leds_delay)
+        for cc in range(max_cc):
+            send_msg(cc, False)
 
 
 def hasattr_partial(f, attr):
@@ -200,6 +201,12 @@ class Soundscape:
         if self.sample_num != self.ctrl.sample_num:
             self.load_sample(self.ctrl.sample_num)
         synth = self.ctrl.marker % len(synths)
+        if self.synth != synth and 'cycle' in self.ctrl.transport and self.ctrl.transport['cycle'] and not synths[synth][0].lower().startswith('smp'):
+            self.ctrl.transport['cycle'] = False
+            if external_led_mode and 'cycle' in transport_led:
+                send_msg(transport_cc['cycle'], False)
+            self.ctrl.toggle_knobs_mode()
+
         for k in range(num_controls):
             if self.synth != synth:
                 self.tracks[k].set_waveform(self.instantiate_waveform(synth, track=k))
@@ -209,13 +216,14 @@ class Soundscape:
             if volume != self.volumes[k]:
                 self.tracks[k].set_volume(volume)
                 self.volumes[k] = volume
+
         self.synth = synth
 
-        if not hasattr_partial(synths[synth][1], 'skip_pitch_control'):
+        if not hasattr_partial(synths[synth][1], 'skip_external_pitch_control'):
             for cc, v in self.ctrl.new_controls.items():
                 k = cc - knob_cc
                 if 0 <= k < num_controls:
-                    self.tracks[k].set_pitch(notes[k] + self.ctrl.track + self.ctrl.norm_knob(v) * synth_max_shift_semitones)
+                    self.tracks[k].set_pitch(notes[k] + self.ctrl.track + self.ctrl.norm_knob(v) * synth_max_bend_semitones)
 
 
 class Controller:
@@ -240,7 +248,7 @@ class Controller:
         self.track = 0
         self.marker = 0
         self.sample_num = 0
-        blink()
+        blink_leds()
 
     def reset_sliders(self):
         for k in range(num_controls):
