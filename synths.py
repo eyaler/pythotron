@@ -110,7 +110,7 @@ def loop(slice_secs=0.25, max_scrub_secs=None, extend_reversal=False, samplerate
     return func
 
 
-def paulstretch(windowsize_secs=0.25, slice_secs=0.5, max_scrub_secs=None, advance_factor=0, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
+def paulstretch(max_shift_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max_scrub_secs=None, advance_factor=0, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
     # adapted from https://github.com/paulnasca/paulstretch_python
     # we currently use pysinewave which is (possibly duplicated) mono, so have to convert result to mono
     track = kwargs['track']
@@ -153,17 +153,21 @@ def paulstretch(windowsize_secs=0.25, slice_secs=0.5, max_scrub_secs=None, advan
     pos = 0
     loop_smp = None
     freqs = None
+    shifted_freqs = None
     old_windowed_buf = np.zeros((channels if not mono else 1, windowsize)).squeeze()
     later = old_windowed_buf[..., :0]
 
     def func(x):
-        nonlocal last_knob, old_global_pos, pos, loop_smp, freqs, old_windowed_buf, later
+        nonlocal last_knob, old_global_pos, pos, loop_smp, freqs, shifted_freqs, old_windowed_buf, later
         knob = ctrl.get_knob(track)
+        scrub_mode = 'cycle' in ctrl.transport and ctrl.transport['cycle']
         if knob != last_knob:
             last_knob = knob
-            global_pos, loop_smp, pos = slice_and_scrub(sample, slice_len, knob, scrub_len, ctrl.relative_track(track), loop_len, old_global_pos, extend_reversal and advance_factor, pos)
-            old_global_pos = global_pos
-            freqs = None
+            if loop_smp is None or scrub_mode:
+                global_pos, loop_smp, pos = slice_and_scrub(sample, slice_len, knob, scrub_len, ctrl.relative_track(track), loop_len, old_global_pos, extend_reversal and advance_factor, pos)
+                old_global_pos = global_pos
+                freqs = None
+            shifted_freqs = None
 
         while later.shape[-1] < x.shape[-1]:
             if freqs is None or advance_factor:
@@ -175,10 +179,29 @@ def paulstretch(windowsize_secs=0.25, slice_secs=0.5, max_scrub_secs=None, advan
 
                 # get the amplitudes of the frequency components and discard the phases
                 freqs = abs(np.fft.rfft(buf))
+                shifted_freqs = None
+
+            if shifted_freqs is None:
+                shifted_freqs = freqs
+                if not scrub_mode and knob:
+                    shifted_freqs = np.zeros_like(freqs)
+                    rap = 2 ** (knob * max_shift_semitones / 12)
+                    if rap < 1:
+                        for i in range(len(freqs)):
+                            i2 = int(i * rap)
+                            if i2 >= len(freqs):
+                                break
+                            shifted_freqs[i2] += freqs[i]
+                    else:
+                        rap = 1 / rap
+                        for i in range(len(freqs)):
+                            i2 = int(i * rap)
+                            if i2 < len(freqs):
+                                shifted_freqs[i] = freqs[i2]
 
             # randomize the phases by multiplication with a random complex number with modulus=1
             ph = np.random.uniform(0, 2 * np.pi, (channels, freqs.shape[-1])) * 1j
-            rand_freqs = freqs * np.exp(ph)
+            rand_freqs = shifted_freqs * np.exp(ph)
 
             # do the inverse FFT
             buf = np.fft.irfft(rand_freqs)

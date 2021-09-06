@@ -17,6 +17,7 @@ max_db = 5
 min_db = -120
 interp_hz_per_sec = 200
 synth_max_shift_semitones = 1.05
+sampler_max_shift_semitones = 1.5
 interp_amp_per_sec = 100
 samplerate = 44100
 cutoff = 2000000000
@@ -37,9 +38,9 @@ synths = [('sine', np.sin),
           ('dsaw', dsaw(detune_semitones=detune_semitones)),
           ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones))),
           ('smp:loop', partial(loop, slice_secs=loop_slice_secs, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
-          ('smp:stretch+rev', partial(paulstretch, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, extend_reversal=True, samplerate=samplerate)),
-          ('smp:stretch', partial(paulstretch, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
-          ('smp:freeze', partial(paulstretch, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
+          ('smp:stretch+rev', partial(paulstretch, max_shift_semitones=sampler_max_shift_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, extend_reversal=True, samplerate=samplerate)),
+          ('smp:stretch', partial(paulstretch, max_shift_semitones=sampler_max_shift_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
+          ('smp:freeze', partial(paulstretch, max_shift_semitones=sampler_max_shift_semitones, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
           ]
 mono = True
 stereo_to_mono_tolerance = 1e-3
@@ -52,6 +53,7 @@ slider_cc = 0
 knob_cc = 16
 state_cc = {'s': 32, 'm': 48, 'r': 64}
 transport_cc = {'play': 41, 'stop': 42, 'rewind': 43, 'forward': 44, 'record': 45, 'cycle': 46, 'track_rewind': 58, 'track_forward': 59, 'set': 60, 'marker_rewind': 61, 'marker_forward': 62}
+max_cc = 100
 transport_led = ['play', 'stop', 'rewind', 'forward', 'record', 'cycle']
 cc2trans = {v: k for k, v in transport_cc.items()}
 external_led_mode = True  # requires setting LED Mode to "External" in KORG KONTROL Editor
@@ -89,6 +91,8 @@ e    record-arm off all tracks
 t    record-arm exclusive mode Toggle
 u    solo/mute/record-arm off all tracks
 1-0  choose synth
+
+cycle                    toggle pitch shift / temporal scrub 
 track rewind/forward     semitone scale shift
 marker rewind/forward    change synths and samplers
 rewind/forward           change sample file
@@ -107,18 +111,18 @@ midi_in = rtmidi.MidiIn()
 midi_out = rtmidi.MidiOut()
 in_ports = midi_in.get_ports()
 out_ports = midi_out.get_ports()
-print('In MIDI ports:', in_ports)
-print('Out MIDI ports:', out_ports)
 in_port = [i for i, name in enumerate(in_ports) if name.lower().startswith(in_port_device.lower())][0]
-out_port = [i for i, name in enumerate(out_ports) if name.lower().startswith(in_port_device.lower())][0]
-midi_in.open_port()
-midi_out.open_port()
+out_port = [i for i, name in enumerate(out_ports) if name.lower().startswith(out_port_device.lower())][0]
+print('In MIDI ports:', in_ports, in_port)
+print('Out MIDI ports:', out_ports, out_port)
+midi_in.open_port(in_port)
+midi_out.open_port(out_port)
 
 synth_names, synth_funcs = zip(*synths)
 assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
 assert len(synth_funcs) == len(set(synth_funcs)), sorted(x for x in synth_funcs if synth_funcs.count(x) > 1)
 assert len(notes) >= num_controls, (notes, num_controls)
-help_keys = [line[0].lower() for line in help_text if line[1] in (' ', '\t')]
+help_keys = [line[0].lower() for line in help_text if len(line) > 1 and line[1] in (' ', '\t')]
 assert len(help_keys) == len(set(help_keys)), sorted(x for x in help_keys if help_keys.count(x) > 1)
 
 note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -127,6 +131,17 @@ note_names += [x.lower() for x in note_names]
 
 def send_msg(cc, val):
     midi_out.send_message([176, cc, val * 127])
+
+
+def blink(blink_delay=0.2):
+    for cc in range(max_cc):
+        send_msg(cc, False)
+    time.sleep(blink_delay)
+    for cc in range(max_cc):
+        send_msg(cc, True)
+    time.sleep(blink_delay)
+    for cc in range(max_cc):
+        send_msg(cc, False)
 
 
 def hasattr_partial(f, attr):
@@ -225,6 +240,7 @@ class Controller:
         self.track = 0
         self.marker = 0
         self.sample_num = 0
+        blink()
 
     def reset_sliders(self):
         for k in range(num_controls):
@@ -309,6 +325,9 @@ class Controller:
             if 'record' in self.transport and self.transport['record']:
                 self.new_transport['record'] = False
 
+        if 'cycle' in self.new_transport:
+            self.toggle_knobs_mode()
+
         refresh_knobs = False
         for trans, v in self.new_transport.items():
             if v:
@@ -374,8 +393,6 @@ def main_loop(screen, ctrl, sound):
             if synth_disp != sound.synth_disp:
                 if synth_disp:
                     screen.print_at(' ' * len(synth_disp), screen.width - len(synth_disp), screen.height - 2, bg=bg_color)
-                    if synth_disp.startswith('smp') != synths[sound.synth][0].lower().startswith('smp'):
-                        ctrl.toggle_knobs_mode()
                 synth_disp = sound.synth_disp
                 screen.print_at(synth_disp, screen.width - len(synth_disp), screen.height - 2,
                                 colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
