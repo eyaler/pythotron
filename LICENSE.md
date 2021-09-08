@@ -1,0 +1,2 @@
+This software is distributed under the most permissive license that it is allowed to be distributed under,
+as long as you give proper attribution in the form of a link to this repository, if such a requirement is allowed.

@@ -12,7 +12,7 @@ Supported controls:
   - solo/mute/record toggle all
   - solo/record exclusive mode
   - Stop stops play and record
-- Software override options:
+- Software override logic:
   - Mute override all
   - Solo defeats mute mode
   - Several knob modes with memory
@@ -53,8 +53,8 @@ Setup:
 - For MP3 support [install ffmpeg or gstreamer](https://github.com/librosa/librosa#audioread-and-mp3-support)
 
 Known issues:
-- Stereo samples are rendered as duplicated mono (due to using pysinewave library)
-- High CPU settings are required to avoid clicks (make sure your laptop is plugged in)
+- Stereo samples are rendered as duplicated mono (due to using [pysinewave](https://github.com/daviddavini/pysinewave) library)
+- Inefficient implementation requires high CPU settings to avoid clicks (make sure your laptop is plugged in)
 - Sample looper pitch bending and scrubbing cause significant clicks
 
 I began this because I could not find an existing easy plug-and-play visual or audial monitor for my controller. 
