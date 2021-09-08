@@ -11,10 +11,11 @@ Supported controls:
 - State/LED programmatic control:
   - solo/mute/record toggle all
   - solo/record exclusive mode
+  - Stop stops play and record
 - Software override options:
   - Mute override all
-  - Solo defeats mute
-  - Different knob modes with memory
+  - Solo defeats mute mode
+  - Several knob modes with memory
   - Reset knob and slider states
 
 Musical instruments:
