@@ -78,33 +78,46 @@ def slice_and_scrub(sample, slice_len, knob, scrub_len, rel_track, loop_len, old
     return global_pos, loop_smp, pos
 
 
-def loop(slice_secs=0.25, max_scrub_secs=None, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
+def loop(max_bend_semitones=12, slice_secs=0.25, max_scrub_secs=None, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
     # we currently use pysinewave which is (possibly duplicated) mono, so have to convert result to mono
     track = kwargs['track']
     ctrl = kwargs['ctrl']
     sample = kwargs['sample']
 
-    if mono:
-        sample = librosa.to_mono(sample)
-
     slice_len, scrub_len, loop_len = calc_lens(sample, slice_secs, max_scrub_secs, extend_reversal, samplerate)
 
-    last_knob = None
+    last_scrub = None
     loop_smp = None
     old_global_pos = None
     pos = 0
+    last_pitch = None
+    shifted_smp = None
 
     def func(x):
-        nonlocal last_knob, loop_smp, old_global_pos, pos
-        knob = ctrl.get_knob(track)
-        if knob != last_knob:
-            last_knob = knob
-            global_pos, loop_smp, pos = slice_and_scrub(sample, slice_len, knob, scrub_len, ctrl.relative_track(track), loop_len, old_global_pos, extend_reversal, pos, minimize_clicks=True)
+        nonlocal last_scrub, loop_smp, old_global_pos, pos, last_pitch, shifted_smp
+        knob_scrub = ctrl.get_knob(track, mode='smp-scrub')
+        if knob_scrub != last_scrub:
+            last_scrub = knob_scrub
+            global_pos, loop_smp, pos = slice_and_scrub(sample, slice_len, knob_scrub, scrub_len, ctrl.relative_track(track), loop_len, old_global_pos, extend_reversal, pos, minimize_clicks=True)
             old_global_pos = global_pos
+            shifted_smp = None
+        knob_pitch = ctrl.get_knob(track, mode='smp-pitch')
+        if knob_pitch != last_pitch or shifted_smp is None:
+            last_pitch = knob_pitch
+            shifted_smp = loop_smp
+            channels = len(loop_smp.shape)
+            if knob_pitch:
+                shifted_smp = [librosa.effects.pitch_shift(smp, samplerate, knob_pitch * max_bend_semitones) for smp in (loop_smp if channels > 1 else [loop_smp])]
+                if channels > 1:
+                    shifted_smp = np.asarray(shifted_smp)
+                else:
+                    shifted_smp = shifted_smp[0]
+            if mono and channels > 1:
+                shifted_smp = librosa.to_mono(shifted_smp)
 
-        output = loop_smp[..., int(pos):int(pos) + x.shape[-1]]
+        output = shifted_smp[..., int(pos):int(pos) + x.shape[-1]]
         while output.shape[-1] < x.shape[-1]:
-            output = np.hstack((output, loop_smp[..., :x.shape[-1]]))
+            output = np.hstack((output, shifted_smp[..., :x.shape[-1]]))
         pos = (pos + x.shape[-1]) % loop_len
         return output[..., :x.shape[-1]]
     return func
@@ -148,25 +161,28 @@ def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max
 
     slice_len, scrub_len, loop_len = calc_lens(sample, slice_secs, max_scrub_secs, extend_reversal, samplerate, windowsize=windowsize, advance_factor=advance_factor)
 
-    last_knob = None
+    last_scrub = None
     old_global_pos = None
     pos = 0
     loop_smp = None
     freqs = None
     shifted_freqs = None
+    last_pitch = None
     old_windowed_buf = np.zeros((channels if not mono else 1, windowsize)).squeeze()
     later = old_windowed_buf[..., :0]
 
     def func(x):
-        nonlocal last_knob, old_global_pos, pos, loop_smp, freqs, shifted_freqs, old_windowed_buf, later
-        knob = ctrl.get_knob(track)
-        scrub_mode = 'cycle' in ctrl.transport and ctrl.transport['cycle']
-        if knob != last_knob:
-            last_knob = knob
-            if loop_smp is None or scrub_mode:
-                global_pos, loop_smp, pos = slice_and_scrub(sample, slice_len, knob, scrub_len, ctrl.relative_track(track), loop_len, old_global_pos, extend_reversal and advance_factor, pos)
-                old_global_pos = global_pos
-                freqs = None
+        nonlocal last_scrub, old_global_pos, pos, loop_smp, freqs, shifted_freqs, last_pitch, old_windowed_buf, later
+        knob_scrub = ctrl.get_knob(track, mode='smp-scrub')
+        if knob_scrub != last_scrub:
+            last_scrub = knob_scrub
+            global_pos, loop_smp, pos = slice_and_scrub(sample, slice_len, knob_scrub, scrub_len, ctrl.relative_track(track), loop_len, old_global_pos, extend_reversal and advance_factor, pos)
+            old_global_pos = global_pos
+            freqs = None
+            shifted_freqs = None
+        knob_pitch = ctrl.get_knob(track, mode='smp-pitch')
+        if knob_pitch != last_pitch:
+            last_pitch = knob_pitch
             shifted_freqs = None
 
         while later.shape[-1] < x.shape[-1]:
@@ -183,21 +199,16 @@ def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max
 
             if shifted_freqs is None:
                 shifted_freqs = freqs
-                if not scrub_mode and knob:
+                if knob_pitch:
                     shifted_freqs = np.zeros_like(freqs)
-                    rap = 2 ** (knob * max_bend_semitones / 12)
+                    rap = 2 ** (knob_pitch * max_bend_semitones / 12)
                     if rap < 1:
-                        for i in range(len(freqs)):
-                            i2 = int(i * rap)
-                            if i2 >= len(freqs):
-                                break
-                            shifted_freqs[i2] += freqs[i]
+                        for i in range(freqs.shape[-1]):
+                            shifted_freqs[..., int(i * rap)] += freqs[..., i]
                     else:
                         rap = 1 / rap
-                        for i in range(len(freqs)):
-                            i2 = int(i * rap)
-                            if i2 < len(freqs):
-                                shifted_freqs[i] = freqs[i2]
+                        for i in range(freqs.shape[-1]):
+                            shifted_freqs[..., i] = freqs[..., int(i * rap)]
 
             # randomize the phases by multiplication with a random complex number with modulus=1
             ph = np.random.uniform(0, 2 * np.pi, (channels, freqs.shape[-1])) * 1j
@@ -206,7 +217,7 @@ def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max
             # do the inverse FFT
             buf = np.fft.irfft(rand_freqs)
 
-            if mono:
+            if mono and len(buf.shape) > 1:
                 buf = librosa.to_mono(buf.squeeze())
 
             # window again the output buffer

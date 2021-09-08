@@ -17,8 +17,8 @@ import time
 max_db = 5
 min_db = -120
 interp_hz_per_sec = 200
-synth_max_bend_semitones = 1.05
-sampler_max_bend_semitones = 1.5
+synth_max_bend_semitones = 16/15  # == 5/3 cent per step
+sampler_max_bend_semitones = 3.2  # == 5 cent per step
 interp_amp_per_sec = 100
 samplerate = 44100
 cutoff = 2000000000
@@ -38,11 +38,12 @@ synths = [('sine', np.sin),
           ('arpeggio-up7', partial(chord, chord_notes=chord_notes7, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
           ('dsaw', dsaw(detune_semitones=detune_semitones)),
           ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones))),
-          ('smp:loop', partial(loop, slice_secs=loop_slice_secs, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
+          ('smp:loop', partial(loop, max_bend_semitones=sampler_max_bend_semitones, slice_secs=loop_slice_secs, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
           ('smp:stretch+rev', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, extend_reversal=True, samplerate=samplerate)),
           ('smp:stretch', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
           ('smp:freeze', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
           ]
+knobs_modes = ['syn-pitch', 'smp-pitch', 'smp-scrub']
 mono = True
 stereo_to_mono_tolerance = 1e-3
 sleep = 0.0001
@@ -79,7 +80,7 @@ h    Help show/hide
 q    Quit
 i    Initialize
 p    reset midi Ports
-k    reset Knobs 
+k    reset Knobs (for the active knobs mode) 
 l    reset sliders
 s    Solo on all tracks
 a    solo off All tracks
@@ -89,12 +90,12 @@ m    Mute on all tracks
 n    mute off all tracks
 o    mute Override all tracks toggle
 r    Record-arm on all tracks
-e    record-arm off all tracks
-t    record-arm exclusive mode Toggle
+t    record-arm off all tracks
+e    record-arm Exclusive mode Toggle
 u    solo/mute/record-arm off all tracks
 1-0  choose synth
 
-cycle                    toggle pitch bend / temporal scrub 
+cycle                    toggle sampler knobs mode: pitch bend / temporal scrub 
 track rewind/forward     semitone scale shift
 marker rewind/forward    change synths and samplers
 rewind/forward           change sample file
@@ -176,12 +177,7 @@ class Soundscape:
         if self.sample_num != self.ctrl.sample_num:
             self.load_sample(self.ctrl.sample_num)
         synth = self.ctrl.marker % len(synths)
-        if self.synth != synth and 'cycle' in self.ctrl.transport and self.ctrl.transport['cycle'] and not synths[synth][0].lower().startswith('smp'):
-            self.ctrl.transport['cycle'] = False
-            if external_led_mode and 'cycle' in transport_led:
-                self.ctrl.send_msg(transport_cc['cycle'], False)
-            self.ctrl.toggle_knobs_mode()
-
+        self.ctrl.toggle_knobs_mode(synths[synth][0].lower().startswith('smp'))
         for k in range(num_controls):
             if self.synth != synth:
                 self.tracks[k].set_waveform(self.instantiate_waveform(synth, track=k))
@@ -191,7 +187,6 @@ class Soundscape:
             if volume != self.volumes[k]:
                 self.tracks[k].set_volume(volume)
                 self.volumes[k] = volume
-
         self.synth = synth
 
         if not hasattr_partial(synths[synth][1], 'skip_external_pitch_control'):
@@ -215,7 +210,8 @@ class Controller:
         self.show_help = False
         self.controls = {}
         self.new_controls = {}
-        self.controls_memory = {}
+        self.knobs_memory = {knobs_mode: {k: knob_center for k in range(num_controls)} for knobs_mode in knobs_modes}
+        self.knobs_mode = knobs_modes[0]
         self.reset_sliders()
         self.reset_knobs()
         self.new_states = {state_name: {k: False for k in range(num_controls)} for state_name in state_cc}
@@ -259,34 +255,47 @@ class Controller:
 
     def reset_sliders(self):
         for k in range(num_controls):
-            self.controls[k + slider_cc] = 0
-            self.new_controls[k + slider_cc] = 0
-            self.controls_memory[k + slider_cc] = 0
+            cc = k + slider_cc
+            self.controls[cc] = 0
+            self.new_controls[cc] = 0
 
     def reset_knobs(self):
         for k in range(num_controls):
-            self.controls[k + knob_cc] = knob_center
-            self.new_controls[k + knob_cc] = knob_center
-            self.controls_memory[k + knob_cc] = knob_center
+            cc = k + knob_cc
+            self.controls[cc] = knob_center
+            self.new_controls[cc] = knob_center
+            self.knobs_memory[self.knobs_mode][k] = 0
 
-    def toggle_knobs_mode(self):
-        for k in range(num_controls):
-            self.new_controls[k + knob_cc] = self.controls_memory[k + knob_cc]
-            self.controls_memory[k + knob_cc] = self.controls[k + knob_cc]
-            self.controls[k + knob_cc] = self.new_controls[k + knob_cc]
+    def toggle_knobs_mode(self, is_sampler=None):
+        mode = 'syn-pitch'
+        if is_sampler or is_sampler is None and self.knobs_mode.startswith('smp'):
+            mode = 'smp-scrub' if self.transport['cycle'] else 'smp-pitch'
+        if mode != self.knobs_mode:
+            for k in range(num_controls):
+                cc = k + knob_cc
+                self.knobs_memory[self.knobs_mode][k] = self.controls[cc]
+                self.controls[cc] = self.knobs_memory[mode][k]
+                self.new_controls[cc] = self.controls[cc]
+            self.knobs_mode = mode
 
     @staticmethod
     def norm_knob(v):
         return min(v / knob_center - 1, 1)
 
-    def get_knob(self, k):
-        if k + knob_cc in self.controls:
-            return self.norm_knob(self.controls[k + knob_cc])
+    def get_knob(self, k, mode=None):
+        mode_controls = self.controls
+        i = k + knob_cc
+        if mode != self.knobs_mode and mode in self.knobs_memory:
+            mode_controls = self.knobs_memory[mode]
+            i = k
+        if i in mode_controls:
+            return self.norm_knob(mode_controls[i])
         return 0
 
     def get_slider(self, k):
-        if k + slider_cc in self.controls:
-            return self.controls[k + slider_cc] / 127
+        cc = k + slider_cc
+        if cc in self.controls:
+            return self.controls[cc] / 127
         return 0
 
     @staticmethod
@@ -334,10 +343,10 @@ class Controller:
             self.states[state_name].update(self.new_states[state_name])
         self.new_states = {state_name: {} for state_name in self.states}
 
-        if 'stop' in self.new_transport and not self.new_transport['stop']:
-            if 'play' in self.transport and self.transport['play']:
+        if not self.new_transport.get('stop', True):
+            if self.transport.get('play'):
                 self.new_transport['play'] = False
-            if 'record' in self.transport and self.transport['record']:
+            if self.transport.get('record'):
                 self.new_transport['record'] = False
 
         if 'cycle' in self.new_transport:
@@ -513,11 +522,12 @@ def main_loop(screen, ctrl, sound):
             elif c in ['q', 'ץ']:  # Quit
                 return
             elif c in ['i', 'ת']:  # Initialize
+                screen.clear()
                 ctrl.reset()
                 sound.reset()
             elif c in ['p', 'פ']:  # reset midi Ports
                 ctrl.reset_midi()
-            elif c in ['k', 'ל']:  # reset Knobs
+            elif c in ['k', 'ל']:  # reset Knobs (for the active knobs mode)
                 ctrl.reset_knobs()
             elif c in ['l', 'ך']:  # reset sliders
                 ctrl.reset_sliders()
@@ -549,9 +559,9 @@ def main_loop(screen, ctrl, sound):
                                     mute_override_y, bg=bg_color)
             elif c in ['r', 'ר']:  # Record-arm on all tracks
                 ctrl.toggle_all('r', True)
-            elif c in ['e', 'ק']:  # record-arm off all tracks
+            elif c in ['t', 'א']:  # record-arm off all tracks
                 ctrl.toggle_all('r', False)
-            elif c in ['t', 'א'] and external_led_mode:  # record-arm exclusive mode toggle
+            elif c in ['e', 'ק'] and external_led_mode:  # record-arm Exclusive mode toggle
                 ctrl.record_exclusive = not ctrl.record_exclusive
                 if not ctrl.record_exclusive:
                     screen_refresh = True

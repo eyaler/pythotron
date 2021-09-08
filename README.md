@@ -51,7 +51,7 @@ Setup:
 Known issues:
 - Stereo samples are rendered as mono
 - High CPU settings are required to avoid clicks
-- Pitch bending is not implemented for sample looper
+- Pitch bending for the sample looper is very clicky
 
 I began this because I could not find an existing easy plug-and-play visual or audial monitor for my controller. 
 But if it was not evident, I am using this as a platform to learn more about music theory, audio effects and sound synthesis, 
