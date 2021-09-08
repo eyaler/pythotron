@@ -80,7 +80,7 @@ h    Help show/hide
 q    Quit
 i    Initialize
 p    reset midi Ports
-k    reset Knobs (for the active knobs mode) 
+k    reset Knobs (for the active knobs mode)
 l    reset sliders
 s    Solo on all tracks
 a    solo off All tracks
@@ -95,11 +95,12 @@ e    record-arm Exclusive mode Toggle
 u    solo/mute/record-arm off all tracks
 1-0  choose synth
 
-cycle                    toggle sampler knobs mode: pitch bend / temporal scrub 
+cycle                    toggle sampler knobs mode: pitch bend / temporal scrub
 track rewind/forward     semitone scale shift
 marker rewind/forward    change synths and samplers
 rewind/forward           change sample file
 '''.strip().splitlines()
+help_text = [line.strip() for line in help_text]
 
 solo_exclusive_text = 'SOLO EXCL'
 solo_defeats_mute_text = 'SOLO>MUTE'

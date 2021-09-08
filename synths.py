@@ -98,7 +98,7 @@ def loop(max_bend_semitones=12, slice_secs=0.25, max_scrub_secs=None, extend_rev
         knob_scrub = ctrl.get_knob(track, mode='smp-scrub')
         if knob_scrub != last_scrub:
             last_scrub = knob_scrub
-            global_pos, loop_smp, pos = slice_and_scrub(sample, slice_len, knob_scrub, scrub_len, ctrl.relative_track(track), loop_len, old_global_pos, extend_reversal, pos, minimize_clicks=True)
+            global_pos, loop_smp, pos = slice_and_scrub(sample, slice_len, knob_scrub, scrub_len, ctrl.relative_track(track), loop_len, old_global_pos, extend_reversal, pos)
             old_global_pos = global_pos
             shifted_smp = None
         knob_pitch = ctrl.get_knob(track, mode='smp-pitch')
@@ -123,6 +123,7 @@ def loop(max_bend_semitones=12, slice_secs=0.25, max_scrub_secs=None, extend_rev
     return func
 
 
+rng = np.random  #.Generator(np.random.MT19937())  # Mersenne Twister
 def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max_scrub_secs=None, advance_factor=0, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
     # adapted from https://github.com/paulnasca/paulstretch_python, https://github.com/paulnasca/paulstretch_cpp
     # we currently use pysinewave which is (possibly duplicated) mono, so have to convert result to mono
@@ -206,12 +207,11 @@ def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max
                         for i in range(freqs.shape[-1]):
                             shifted_freqs[..., int(i * rap)] += freqs[..., i]
                     else:
-                        rap = 1 / rap
                         for i in range(freqs.shape[-1]):
-                            shifted_freqs[..., i] = freqs[..., int(i * rap)]
+                            shifted_freqs[..., i] = freqs[..., int(i / rap)]
 
             # randomize the phases by multiplication with a random complex number with modulus=1
-            ph = np.random.uniform(0, 2 * np.pi, (channels, freqs.shape[-1])) * 1j
+            ph = rng.uniform(0, 2 * np.pi, (channels, freqs.shape[-1])) * 1j
             rand_freqs = shifted_freqs * np.exp(ph)
 
             # do the inverse FFT

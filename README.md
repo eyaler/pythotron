@@ -28,10 +28,11 @@ Synths:
 - Chords
 - Arpeggio 
 - Detuned saw
+- Detuned saw chord
 - Sampler + slicer +
   - Looper
-  - [Paulstretch](http://hypermammut.sourceforge.net/paulstretch) freeze (oh yeah!) 
-  - Paulstretch stretch looper
+  - [Paulstretch](http://hypermammut.sourceforge.net/paulstretch) stretch looper 
+  - Paulstretch freeze (oh yeah!)
     
 Setup:
 - pip install -r requirements.txt
@@ -49,9 +50,9 @@ Setup:
 - For MP3 support [install ffmpeg or gstreamer](https://github.com/librosa/librosa#audioread-and-mp3-support)
 
 Known issues:
-- Stereo samples are rendered as mono
-- High CPU settings are required to avoid clicks
-- Pitch bending for the sample looper is very clicky
+- Stereo samples are rendered as duplicated mono (due to using pysinewave library)
+- High CPU settings are required to avoid clicks (make sure your laptop is plugged in)
+- Sample looper pitch bending and scrubbing cause significant clicks
 
 I began this because I could not find an existing easy plug-and-play visual or audial monitor for my controller. 
 But if it was not evident, I am using this as a platform to learn more about music theory, audio effects and sound synthesis, 
