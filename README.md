@@ -12,14 +12,16 @@ Supported controls:
   - solo/mute/record toggle all
   - solo/record exclusive mode
 - Software override options:
-  - mute override all
-  - solo defeats mute
+  - Mute override all
+  - Solo defeats mute
+  - Different knob modes with memory
+  - Reset knob and slider states
 
 Musical instruments:
 - Fader Organ:
-  - tracks = notes or sample slices
-  - sliders = volume
-  - knobs = pitch bend or temporal scrub
+  - Tracks = notes or sample slices
+  - Sliders = volume
+  - Knobs = pitch bend or temporal scrub
 - Finger Theremin (TBD)
 - Phased Looper (TBD)
 

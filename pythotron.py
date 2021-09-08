@@ -43,7 +43,7 @@ synths = [('sine', np.sin),
           ('smp:stretch', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
           ('smp:freeze', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
           ]
-knobs_modes = ['syn-pitch', 'smp-pitch', 'smp-scrub']
+knob_modes = ['syn-pitch', 'smp-pitch', 'smp-scrub']
 mono = True
 stereo_to_mono_tolerance = 1e-3
 sleep = 0.0001
@@ -178,7 +178,7 @@ class Soundscape:
         if self.sample_num != self.ctrl.sample_num:
             self.load_sample(self.ctrl.sample_num)
         synth = self.ctrl.marker % len(synths)
-        self.ctrl.toggle_knobs_mode(synths[synth][0].lower().startswith('smp'))
+        self.ctrl.toggle_knob_mode(synths[synth][0].lower().startswith('smp'))
         for k in range(num_controls):
             if self.synth != synth:
                 self.tracks[k].set_waveform(self.instantiate_waveform(synth, track=k))
@@ -211,8 +211,8 @@ class Controller:
         self.show_help = False
         self.controls = {}
         self.new_controls = {}
-        self.knobs_memory = {knobs_mode: {k: knob_center for k in range(num_controls)} for knobs_mode in knobs_modes}
-        self.knobs_mode = knobs_modes[0]
+        self.knobs_memory = {knob_mode: {k: knob_center for k in range(num_controls)} for knob_mode in knob_modes}
+        self.knob_mode = knob_modes[0]
         self.reset_sliders()
         self.reset_knobs()
         self.new_states = {state_name: {k: False for k in range(num_controls)} for state_name in state_cc}
@@ -265,19 +265,19 @@ class Controller:
             cc = k + knob_cc
             self.controls[cc] = knob_center
             self.new_controls[cc] = knob_center
-            self.knobs_memory[self.knobs_mode][k] = 0
+            self.knobs_memory[self.knob_mode][k] = 0
 
-    def toggle_knobs_mode(self, is_sampler=None):
+    def toggle_knob_mode(self, is_sampler=None):
         mode = 'syn-pitch'
-        if is_sampler or is_sampler is None and self.knobs_mode.startswith('smp'):
+        if is_sampler or is_sampler is None and self.knob_mode.startswith('smp'):
             mode = 'smp-scrub' if self.transport['cycle'] else 'smp-pitch'
-        if mode != self.knobs_mode:
+        if mode != self.knob_mode:
             for k in range(num_controls):
                 cc = k + knob_cc
-                self.knobs_memory[self.knobs_mode][k] = self.controls[cc]
+                self.knobs_memory[self.knob_mode][k] = self.controls[cc]
                 self.controls[cc] = self.knobs_memory[mode][k]
                 self.new_controls[cc] = self.controls[cc]
-            self.knobs_mode = mode
+            self.knob_mode = mode
 
     @staticmethod
     def norm_knob(v):
@@ -286,7 +286,7 @@ class Controller:
     def get_knob(self, k, mode=None):
         mode_controls = self.controls
         i = k + knob_cc
-        if mode != self.knobs_mode and mode in self.knobs_memory:
+        if mode != self.knob_mode and mode in self.knobs_memory:
             mode_controls = self.knobs_memory[mode]
             i = k
         if i in mode_controls:
@@ -351,7 +351,7 @@ class Controller:
                 self.new_transport['record'] = False
 
         if 'cycle' in self.new_transport:
-            self.toggle_knobs_mode()
+            self.toggle_knob_mode()
 
         refresh_knobs = False
         for trans, v in self.new_transport.items():
