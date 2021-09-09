@@ -120,12 +120,17 @@ note_names += [x.lower() for x in note_names]
 
 if not isinstance(notes[0], (list, tuple)):
     notes = [notes]
+if not isinstance(chord_notes[0], (list, tuple)):
+    chord_notes = [chord_notes]
+if not isinstance(chord_notes[0][0], (list, tuple)):
+    chord_notes = [chord_notes]
 assert all(len(n) == num_controls for n in notes), ([len(n) for n in notes], num_controls)
 synth_names, synth_funcs = zip(*synths)
 assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
 assert len(synth_funcs) == len(set(synth_funcs)), sorted(x for x in synth_funcs if synth_funcs.count(x) > 1)
 help_keys = [line[0].lower() for line in help_text if len(line) > 1 and line[1] in (' ', '\t')]
 assert len(help_keys) == len(set(help_keys)), sorted(x for x in help_keys if help_keys.count(x) > 1)
+chord2quality = {tuple(v): k for k, v in C.__dict__.items()}
 
 
 def hasattr_partial(f, attr):
@@ -146,12 +151,17 @@ class Soundscape:
     def sample_disp(self):
         return self.sample_path.split(sample_folder + os.sep, 1)[-1]
 
-    def get_note(self, k):
+    def get_note(self, k, ret_quality=False):
         active_notes = notes
+        active_chords = chord_notes
         if synths[self.synth][0].lower().startswith('asos'):
             active_notes = [asos_notes]
+            active_chords = [asos_chords]
         scale = self.ctrl.track_register % len(active_notes)
-        return active_notes[scale][k] + self.ctrl.track_register // len(active_notes)
+        note = active_notes[scale][k] + self.ctrl.track_register // len(active_notes)
+        if ret_quality:
+            return note, chord2quality.get(tuple(active_chords[scale][k % len(active_chords[scale])]), ' ')
+        return note
 
     def instantiate_waveform(self, synth, track=None):
         waveform = synths[synth][1]
@@ -446,14 +456,15 @@ def main_loop(screen, ctrl, sound):
                 k = cc - knob_cc
                 control_size = knob_size
                 if hasattr_partial(synths[sound.synth][1], 'show_track_numbers'):
-                    label = str(k+1)[::-1]
+                    label = ' ' + str(k+1)[::-1]
                 else:
-                    label = note_names[sound.get_note(k) % len(note_names)]
+                    note, quality = sound.get_note(k, ret_quality=True)
+                    label = quality + note_names[note % len(note_names)]
 
-                for i, char in enumerate(label.ljust(2)):
+                for i, char in enumerate(label.ljust(3)):
                     screen.print_at(char,
                                     int((k + 0.5) * screen.width / num_controls),
-                                    int(int((knob_size - 1) / 4 + 1) - knob_size / 4 - i + screen.height / 4),
+                                    int(int((knob_size - 1) / 4 + 1) - knob_size / 4 + 1 - i + screen.height / 4),
                                     colour=solo_color if 's' in ctrl.states and ctrl.states['s'][k] else fg_color,
                                     attr=Screen.A_REVERSE if char != ' ' else Screen.A_NORMAL,
                                     bg=record_color if 'r' in ctrl.states and ctrl.states['r'][k] and char != ' ' else bg_color)
