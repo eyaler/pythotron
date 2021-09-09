@@ -115,7 +115,6 @@ record_exclusive_y = 3
 note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 note_names += [x.lower() for x in note_names]
 
-assert len(notes) == len(chord_notes), (notes, chord_notes)
 assert len(notes[0]) >= num_controls, (notes[0], num_controls)
 synth_names, synth_funcs = zip(*synths)
 assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
