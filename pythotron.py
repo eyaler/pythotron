@@ -41,6 +41,7 @@ synths = [('sine', np.sin),
           ('chord', partial(chord, chord_notes=chord_notes)),
           ('ASOS', partial(chord, chord_notes=asos_chords)),
           ('arpeggio-up7', partial(chord, chord_notes=chord_notes, seventh=True, arpeggio_order=1, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
+          ('arpeggio-dn7', partial(chord, chord_notes=chord_notes, seventh=True, arpeggio_order=-1, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
           ('dsaw', dsaw(detune_semitones=detune_semitones)),
           ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones))),
           ('smp:loop', partial(loop, max_bend_semitones=sampler_max_bend_semitones, slice_secs=loop_slice_secs, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
@@ -130,7 +131,7 @@ assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names 
 assert len(synth_funcs) == len(set(synth_funcs)), sorted(x for x in synth_funcs if synth_funcs.count(x) > 1)
 help_keys = [line[0].lower() for line in help_text if len(line) > 1 and line[1] in (' ', '\t')]
 assert len(help_keys) == len(set(help_keys)), sorted(x for x in help_keys if help_keys.count(x) > 1)
-chord2quality = {tuple(v): k for k, v in C.__dict__.items()}
+chord2quality = {tuple(v[:3]): k for k, v in C.__dict__.items()}
 
 
 def hasattr_partial(f, attr):
@@ -160,7 +161,7 @@ class Soundscape:
         scale = self.ctrl.track_register % len(active_notes)
         note = active_notes[scale][k] + self.ctrl.track_register // len(active_notes)
         if ret_quality:
-            return note, chord2quality.get(tuple(active_chords[scale][k % len(active_chords[scale])]), ' ')
+            return note, chord2quality.get(tuple(active_chords[scale][k % len(active_chords[scale])][:3]), ' ')
         return note
 
     def instantiate_waveform(self, synth, track=None):
