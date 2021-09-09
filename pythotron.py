@@ -115,6 +115,8 @@ record_exclusive_y = 3
 note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 note_names += [x.lower() for x in note_names]
 
+assert len(notes) == len(chord_notes), (notes, chord_notes)
+assert len(notes[0]) >= num_controls, (notes[0], num_controls)
 synth_names, synth_funcs = zip(*synths)
 assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
 assert len(synth_funcs) == len(set(synth_funcs)), sorted(x for x in synth_funcs if synth_funcs.count(x) > 1)
@@ -142,7 +144,7 @@ class Soundscape:
 
     def get_note(self, k):
         scale = self.ctrl.track_register % len(notes)
-        return notes[scale][k % len(notes[scale])] + self.ctrl.track_register // len(notes)
+        return notes[scale][k] + self.ctrl.track_register // len(notes)
 
     def instantiate_waveform(self, synth, track=None):
         waveform = synths[synth][1]
