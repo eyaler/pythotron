@@ -48,7 +48,7 @@ synths = [('sine', np.sin),
           ('smp:stretch', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
           ('smp:freeze', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
           ]
-knob_modes = ['syn-pitch', 'smp-pitch', 'smp-scrub']  # knob_modes[0] must correspond to synth[0]
+knob_modes = ['syn-pitch', 'smp-pitch', 'smp-scrub']
 mono = True
 stereo_to_mono_tolerance = 1e-3
 sleep = 0.0001
@@ -148,7 +148,7 @@ class Soundscape:
 
     def get_note(self, k):
         active_notes = notes
-        if synths[self.synth][0].lower() == 'asos':
+        if synths[self.synth][0].lower().startswith('asos'):
             active_notes = [asos_notes]
         scale = self.ctrl.track_register % len(active_notes)
         return active_notes[scale][k] + self.ctrl.track_register // len(active_notes)
@@ -225,7 +225,7 @@ class Controller:
         self.controls = {}
         self.new_controls = {}
         self.knobs_memory = {knob_mode: {k: knob_center for k in range(num_controls)} for knob_mode in knob_modes}
-        self.knob_mode = knob_modes[0]
+        self.knob_mode = knob_modes[synths[0][0].lower().startswith('smp')]
         self.reset_sliders()
         self.reset_knobs()
         self.new_states = {state_name: {k: False for k in range(num_controls)} for state_name in state_cc}
