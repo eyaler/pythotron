@@ -16,9 +16,14 @@ def dsaw(detune_semitones=0):
     return func
 
 
-def chord(waveform=np.sin, chord_notes=((0, 4, 7),), arpeggio_secs=None, arpeggio_amp_step=1, samplerate=44100, **kwargs):
+def chord(waveform=np.sin, chord_notes=((0, 4, 7),), seventh=False, arpeggio_order=1, arpeggio_secs=None, arpeggio_amp_step=1, samplerate=44100, **kwargs):
     track = kwargs['track']
-    chord_notes = chord_notes[track % len(chord_notes)]
+    ctrl = kwargs['ctrl']
+    scale = ctrl.track_register % len(chord_notes)
+    chord_notes = chord_notes[scale][track % len(chord_notes[scale])]
+    if not seventh:
+        chord_notes = chord_notes[:3]
+    chord_notes = chord_notes[::arpeggio_order]
     lcn = len(chord_notes)
     save_steps = [0] * lcn
 

@@ -12,6 +12,7 @@ import rtmidi
 from synths import dsaw, chord, loop, paulstretch
 import sys
 import time
+from types import SimpleNamespace
 
 
 max_db = 5
@@ -22,8 +23,9 @@ sampler_max_bend_semitones = 3.2  # == 5 cent per step
 interp_amp_per_sec = 100
 samplerate = 44100
 cutoff = 2000000000
-chord_notes = [[0, 4, 7], [0, 3, 7], [0, 3, 7], [0, 4, 7], [0, 4, 7], [0, 3, 7], [0, 3, 6]]
-chord_notes7 = [[0, 4, 7, 11], [0, 3, 7, 10], [0, 3, 7, 10], [0, 4, 7, 11], [0, 4, 7, 10], [0, 3, 7, 10], [0, 3, 6, 10]]
+notes = [[0, 2, 4, 5, 7, 9, 11, 12], [0, 2, 3, 5, 7, 8, 10, 12]]  # major scale, natural minor scale
+C = SimpleNamespace(M=[0, 4, 7, 11], m=[0, 3, 7, 10], d=[0, 3, 6, 10])  # by default seventh=False and the last note is ignored
+chord_notes = [[C.M, C.m, C.m, C.M, C.M, C.m, C.d], [C.m, C.d, C.M, C.m, C.m, C.M, C.M]]  # major scale, natural minor scale
 detune_semitones = 0.02
 arpeggio_secs = 0.25
 arpeggio_amp_step = 0.005
@@ -35,7 +37,7 @@ stretch_max_scrub_secs = None
 stretch_advance_factor = 0.1  # == 1 / stretch_factor
 synths = [('sine', np.sin),
           ('chord', partial(chord, chord_notes=chord_notes)),
-          ('arpeggio-up7', partial(chord, chord_notes=chord_notes7, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
+          ('arpeggio-up7', partial(chord, chord_notes=chord_notes, seventh=True, arpeggio_order=1, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
           ('dsaw', dsaw(detune_semitones=detune_semitones)),
           ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones))),
           ('smp:loop', partial(loop, max_bend_semitones=sampler_max_bend_semitones, slice_secs=loop_slice_secs, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
@@ -64,7 +66,6 @@ out_port_device = 'nanoKONTROL2 1'
 
 title = 'Pythotron'
 max_knob_size = 21
-notes = [0, 2, 4, 5, 7, 9, 11, 12]
 sample_folder = 'samples'
 
 fg_color = Screen.COLOUR_RED
@@ -96,7 +97,7 @@ u    solo/mute/record-arm off all tracks
 1-0  choose synth
 
 cycle                    toggle sampler knobs mode: pitch bend / temporal scrub
-track rewind/forward     semitone scale shift
+track rewind/forward     change scale
 marker rewind/forward    change synths and samplers
 rewind/forward           change sample file
 '''.strip().splitlines()
@@ -117,7 +118,6 @@ note_names += [x.lower() for x in note_names]
 synth_names, synth_funcs = zip(*synths)
 assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
 assert len(synth_funcs) == len(set(synth_funcs)), sorted(x for x in synth_funcs if synth_funcs.count(x) > 1)
-assert len(notes) >= num_controls, (notes, num_controls)
 help_keys = [line[0].lower() for line in help_text if len(line) > 1 and line[1] in (' ', '\t')]
 assert len(help_keys) == len(set(help_keys)), sorted(x for x in help_keys if help_keys.count(x) > 1)
 
@@ -140,17 +140,21 @@ class Soundscape:
     def sample_disp(self):
         return self.sample_path.split(sample_folder + os.sep, 1)[-1]
 
+    def get_note(self, k):
+        scale = self.ctrl.track_register % len(notes)
+        return notes[scale][k % len(notes[scale])] + self.ctrl.track_register // len(notes)
+
     def instantiate_waveform(self, synth, track=None):
         waveform = synths[synth][1]
         if hasattr_partial(waveform, 'is_func_factory'):
             waveform = waveform(track=track, ctrl=self.ctrl, sample=self.sample)
         return waveform
 
-    def load_sample(self, sample_num=None):
-        if sample_num is not None:
-            self.sample_num = sample_num
+    def load_sample(self, sample_ind=None):
+        if sample_ind is not None:
+            self.sample_ind = sample_ind
         files = librosa.util.find_files(sample_folder)
-        self.sample_path = files[sample_num % (len(files))]
+        self.sample_path = files[sample_ind % (len(files))]
         try:
             self.sample, _ = librosa.load(self.sample_path, sr=samplerate, mono=mono)
         except Exception as e:
@@ -169,15 +173,15 @@ class Soundscape:
             self.tracks[k].stop()
             del self.tracks[k]
         for k in range(num_controls):
-            self.tracks.append(SineWave(pitch=notes[k], pitch_per_second=interp_hz_per_sec, decibels=min_db,
+            self.tracks.append(SineWave(pitch=self.get_note(k), pitch_per_second=interp_hz_per_sec, decibels=min_db,
                                         decibels_per_second=interp_amp_per_sec, channels=1 if mono else 2,
                                         samplerate=samplerate, waveform=self.instantiate_waveform(self.synth, track=k), cutoff=cutoff))
             self.tracks[k].play()
 
     def update(self):
-        if self.sample_num != self.ctrl.sample_num:
-            self.load_sample(self.ctrl.sample_num)
-        synth = self.ctrl.marker % len(synths)
+        if self.sample_ind != self.ctrl.trans_register:
+            self.load_sample(self.ctrl.trans_register)
+        synth = self.ctrl.marker_register % len(synths)
         self.ctrl.toggle_knob_mode(synths[synth][0].lower().startswith('smp'))
         for k in range(num_controls):
             if self.synth != synth:
@@ -194,7 +198,7 @@ class Soundscape:
             for cc, v in self.ctrl.new_controls.items():
                 k = cc - knob_cc
                 if 0 <= k < num_controls:
-                    self.tracks[k].set_pitch(notes[k] + self.ctrl.track + self.ctrl.norm_knob(v) * synth_max_bend_semitones)
+                    self.tracks[k].set_pitch(self.get_note(k) + self.ctrl.norm_knob(v) * synth_max_bend_semitones)
 
 
 class Controller:
@@ -219,9 +223,9 @@ class Controller:
         self.states = copy.deepcopy(self.new_states)
         self.new_transport = {k: False for k in transport_cc}
         self.transport = self.new_transport.copy()
-        self.track = 0
-        self.marker = 0
-        self.sample_num = 0
+        self.track_register = 0
+        self.marker_register = 0
+        self.trans_register = 0
         self.reset_midi()
         self.blink_leds()
 
@@ -357,19 +361,19 @@ class Controller:
         for trans, v in self.new_transport.items():
             if v:
                 if trans == 'track_rewind':
-                    self.track -= 1
+                    self.track_register -= 1
                     refresh_knobs = True
                 elif trans == 'track_forward':
-                    self.track += 1
+                    self.track_register += 1
                     refresh_knobs = True
                 elif trans == 'marker_rewind':
-                    self.marker -= 1
+                    self.marker_register -= 1
                 elif trans == 'marker_forward':
-                    self.marker += 1
+                    self.marker_register += 1
                 elif trans == 'rewind':
-                    self.sample_num -= 1
+                    self.trans_register -= 1
                 elif trans == 'forward':
-                    self.sample_num += 1
+                    self.trans_register += 1
             if external_led_mode and trans in transport_led:
                 self.send_msg(transport_cc[trans], v)
         if refresh_knobs:
@@ -433,7 +437,7 @@ def main_loop(screen, ctrl, sound):
                 if hasattr_partial(synths[sound.synth][1], 'show_track_numbers'):
                     label = str(k+1)[::-1]
                 else:
-                    label = note_names[(notes[k] + ctrl.track) % len(note_names)]
+                    label = note_names[sound.get_note(k) % len(note_names)]
 
                 for i, char in enumerate(label.ljust(2)):
                     screen.print_at(char,
@@ -573,7 +577,7 @@ def main_loop(screen, ctrl, sound):
             elif c and '0' <= c <= '9':
                 num = (int(c) - 1) % 10
                 if num < len(synths):
-                    ctrl.marker = num
+                    ctrl.marker_register = num
 
         if screen_refresh:
             screen.refresh()

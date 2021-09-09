@@ -1,6 +1,8 @@
 # A simple MIDI controller audiovisual monitor
 
-![GUI](pythotron.gif)
+<p align="center">
+<img src="pythotron.gif" /> 
+</p>
 
 Supported controls:
 - CC MIDI input   
