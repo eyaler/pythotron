@@ -15,7 +15,7 @@ import time
 from types import SimpleNamespace
 
 
-max_db = 5
+max_db = 0
 min_db = -120
 interp_hz_per_sec = 200
 synth_max_bend_semitones = 16/15  # == 5/3 cent per step
@@ -35,8 +35,11 @@ stretch_window_secs = 0.25
 stretch_slice_secs = 0.5
 stretch_max_scrub_secs = None
 stretch_advance_factor = 0.1  # == 1 / stretch_factor
+asos_notes = [2, 4, 4, 6, 7, 9, 11, 11]
+asos_chords = [C.M, C.m, C.M, C.M, C.M, C.M, C.m, C.M]
 synths = [('sine', np.sin),
           ('chord', partial(chord, chord_notes=chord_notes)),
+          ('ASOS', partial(chord, chord_notes=asos_chords)),
           ('arpeggio-up7', partial(chord, chord_notes=chord_notes, seventh=True, arpeggio_order=1, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
           ('dsaw', dsaw(detune_semitones=detune_semitones)),
           ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones))),
@@ -45,7 +48,7 @@ synths = [('sine', np.sin),
           ('smp:stretch', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
           ('smp:freeze', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
           ]
-knob_modes = ['syn-pitch', 'smp-pitch', 'smp-scrub']
+knob_modes = ['syn-pitch', 'smp-pitch', 'smp-scrub']  # knob_modes[0] must correspond to synth[0]
 mono = True
 stereo_to_mono_tolerance = 1e-3
 sleep = 0.0001
@@ -96,7 +99,7 @@ e    record-arm Exclusive mode Toggle
 u    solo/mute/record-arm off all tracks
 1-0  choose synth
 
-cycle                    toggle sampler knobs mode: pitch bend / temporal scrub
+cycle                    toggle knobs mode: pitch bend <-> pitch lock (synth) / temporal scrub (sampler)
 track rewind/forward     change scale
 marker rewind/forward    change synths and samplers
 rewind/forward           change sample file
@@ -115,7 +118,9 @@ record_exclusive_y = 3
 note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 note_names += [x.lower() for x in note_names]
 
-assert len(notes[0]) >= num_controls, (notes[0], num_controls)
+if not isinstance(notes[0], (list, tuple)):
+    notes = [notes]
+assert all(len(n) == num_controls for n in notes), ([len(n) for n in notes], num_controls)
 synth_names, synth_funcs = zip(*synths)
 assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
 assert len(synth_funcs) == len(set(synth_funcs)), sorted(x for x in synth_funcs if synth_funcs.count(x) > 1)
@@ -142,8 +147,11 @@ class Soundscape:
         return self.sample_path.split(sample_folder + os.sep, 1)[-1]
 
     def get_note(self, k):
-        scale = self.ctrl.track_register % len(notes)
-        return notes[scale][k] + self.ctrl.track_register // len(notes)
+        active_notes = notes
+        if synths[self.synth][0].lower() == 'asos':
+            active_notes = [asos_notes]
+        scale = self.ctrl.track_register % len(active_notes)
+        return active_notes[scale][k] + self.ctrl.track_register // len(active_notes)
 
     def instantiate_waveform(self, synth, track=None):
         waveform = synths[synth][1]
@@ -275,7 +283,7 @@ class Controller:
     def toggle_knob_mode(self, is_sampler=None):
         mode = 'syn-pitch'
         if is_sampler or is_sampler is None and self.knob_mode.startswith('smp'):
-            mode = 'smp-scrub' if self.transport['cycle'] else 'smp-pitch'
+            mode = 'smp-scrub' if self.transport.get('cycle') else 'smp-pitch'
         if mode != self.knob_mode:
             for k in range(num_controls):
                 cc = k + knob_cc
@@ -318,7 +326,7 @@ class Controller:
     def update_single(self, cc, val):
         cc = int(cc)
         val = int(val)
-        if 0 <= cc - slider_cc < num_controls or 0 <= cc - knob_cc < num_controls:
+        if 0 <= cc - slider_cc < num_controls or 0 <= cc - knob_cc < num_controls and (self.knob_mode.startswith('smp') or not self.transport.get('cycle')):
             self.new_controls[cc] = val
         elif cc in cc2trans:
             trans = cc2trans[cc]
@@ -369,8 +377,10 @@ class Controller:
                     refresh_knobs = True
                 elif trans == 'marker_rewind':
                     self.marker_register -= 1
+                    refresh_knobs = True
                 elif trans == 'marker_forward':
                     self.marker_register += 1
+                    refresh_knobs = True
                 elif trans == 'rewind':
                     self.trans_register -= 1
                 elif trans == 'forward':

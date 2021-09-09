@@ -9,16 +9,20 @@ def sawtooth(x):  # 15x faster than scipy.signal.sawtooth which was too slow for
 
 def dsaw(detune_semitones=0):
     def func(x):
-        w = sawtooth(x * 2 ** (-detune_semitones / 2 / 12))
+        output = sawtooth(x * 2 ** (-detune_semitones / 2 / 12))
         if detune_semitones:
-            w = (w + sawtooth(x * 2 ** (detune_semitones / 2 / 12))) / np.sqrt(2)
-        return w
+            output = (output + sawtooth(x * 2 ** (detune_semitones / 2 / 12))) / 2  # using 2 instead of the expectation value np.sqrt(2) to avoid clipping
+        return output
     return func
 
 
-def chord(waveform=np.sin, chord_notes=((0, 4, 7),), seventh=False, arpeggio_order=1, arpeggio_secs=None, arpeggio_amp_step=1, samplerate=44100, **kwargs):
+def chord(waveform=np.sin, chord_notes=(0, 4, 7), seventh=False, arpeggio_order=1, arpeggio_secs=None, arpeggio_amp_step=1, samplerate=44100, **kwargs):
     track = kwargs['track']
     ctrl = kwargs['ctrl']
+    if not isinstance(chord_notes[0], (list, tuple)):
+        chord_notes = [chord_notes]
+    if not isinstance(chord_notes[0][0], (list, tuple)):
+        chord_notes = [chord_notes]
     scale = ctrl.track_register % len(chord_notes)
     chord_notes = chord_notes[scale][track % len(chord_notes[scale])]
     if not seventh:
@@ -40,10 +44,10 @@ def chord(waveform=np.sin, chord_notes=((0, 4, 7),), seventh=False, arpeggio_ord
                 save_steps[i] = frames[i][-1]
         else:
             frames = [1] * lcn
-        w = sum(frames[i] * waveform(x * 2 ** (n / 12)) for i, n in enumerate(chord_notes))
+        output = sum(frames[i] * waveform(x * 2 ** (n / 12)) for i, n in enumerate(chord_notes))
         if not arpeggio_secs:
-            w /= np.sqrt(lcn)
-        return w
+            output /= lcn  # using lcn instead of the expectation value np.sqrt(lcn) to avoid clipping
+        return output
     return func
 
 
@@ -129,6 +133,8 @@ def loop(max_bend_semitones=12, slice_secs=0.25, max_scrub_secs=None, extend_rev
 
 
 rng = np.random  #.Generator(np.random.MT19937())  # Mersenne Twister
+
+
 def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max_scrub_secs=None, advance_factor=0, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
     # adapted from https://github.com/paulnasca/paulstretch_python, https://github.com/paulnasca/paulstretch_cpp
     # we currently use pysinewave which is (possibly duplicated) mono, so have to convert result to mono
@@ -146,7 +152,6 @@ def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, max
                 n /= 3
             while (n % 5) == 0:
                 n /= 5
-
             if n < 2:
                 break
             orig_n += 1
