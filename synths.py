@@ -1,4 +1,5 @@
 import librosa
+from numba import jit
 import numpy as np
 import time
 
@@ -11,42 +12,67 @@ def dsaw(detune_semitones=0):
     def func(x):
         output = sawtooth(x * 2 ** (-detune_semitones / 2 / 12))
         if detune_semitones:
-            output = (output + sawtooth(x * 2 ** (detune_semitones / 2 / 12))) / 2  # using 2 instead of the expectation value np.sqrt(2) to avoid clipping
+            output = (output + sawtooth(x * 2 ** (detune_semitones / 2 / 12))) / 2  # # not normalizing with sqrt to avoid clipping
         return output
     return func
 
 
-def chord(waveform=np.sin, chord_notes=(0, 4, 7), seventh=False, arpeggio_order=1, arpeggio_secs=None, arpeggio_amp_step=1, samplerate=44100, **kwargs):
+hammond_drawbar_notes = (-12, 7, 0, 12, 19, 24, 28, 31, 36)
+
+
+def harmonizer(waveform, x, drawbar, drawbar_notes=hammond_drawbar_notes):
+    if drawbar is None:
+        return waveform(x)
+    if isinstance(drawbar, str):
+        drawbar = [int(c) for c in drawbar]
+    return np.sum([v * waveform(x * 2 ** (n / 12)) for v, n in zip(drawbar, drawbar_notes) if v], axis=0) / sum(drawbar)  # not normalizing with sqrt to avoid clipping
+
+
+@jit(cache=True)
+def get_arpeggio_frames(x, lcn, t, samplerate, arpeggio_secs, save_steps, arpeggio_amp_step):
+    frames = np.empty((lcn, *x.shape))
+    for j in range(len(x)):
+        ind = int((t + j / samplerate) / arpeggio_secs % lcn)
+        for i in range(lcn):
+            prev = save_steps[i] if j == 0 else frames[i, j - 1]
+            frames[i, j] = min(prev + arpeggio_amp_step, 1) if i == ind else max(prev - arpeggio_amp_step, 0)
+    return frames
+
+
+def chord(waveform=np.sin, chord_notes=(0,), seventh=False, drawbars=None, drawbar_notes=hammond_drawbar_notes, arpeggio_order=1, arpeggio_secs=None, arpeggio_amp_step=1, samplerate=44100, **kwargs):
     track = kwargs['track']
     ctrl = kwargs['ctrl']
     if not isinstance(chord_notes[0], (list, tuple)):
         chord_notes = [chord_notes]
     if not isinstance(chord_notes[0][0], (list, tuple)):
         chord_notes = [chord_notes]
-    scale = ctrl.track_register % len(chord_notes)
-    chord_notes = chord_notes[scale][track % len(chord_notes[scale])]
-    if not seventh:
-        chord_notes = chord_notes[:3]
-    chord_notes = chord_notes[::arpeggio_order]
-    lcn = len(chord_notes)
-    save_steps = [0] * lcn
+    if not isinstance(drawbars, (list, tuple)) or not hasattr(drawbars[-1], '__len__'):
+        drawbars = [drawbars]
+    chord_notes = [chord_for_quality[track % len(chord_for_quality)][:None if seventh else 3][::arpeggio_order] for chord_for_quality in chord_notes]
+    save_steps = []
+    prev_lcn = 0
 
     def func(x):
+        nonlocal save_steps, prev_lcn
+        chord_for_quality = chord_notes[ctrl.track_register % len(chord_notes)]
+        lcn = len(chord_for_quality)
+        if save_steps is None or prev_lcn != lcn:
+            if lcn > prev_lcn:
+                save_steps += [0] * (lcn - prev_lcn)
+            else:
+                del save_steps[lcn:]
+            prev_lcn = lcn
         if arpeggio_secs:  # note: requires high CPU settings otherwise you get clicks
-            frames = [np.empty_like(x) for _ in range(lcn)]
-            t = time.time()
-            for j in range(len(x)):
-                ind = int((t + j / samplerate) / arpeggio_secs % lcn)
-                for i in range(lcn):
-                    prev = save_steps[i] if j == 0 else frames[i][j - 1]
-                    frames[i][j] = min(prev + arpeggio_amp_step, 1) if i == ind else max(prev - arpeggio_amp_step, 0)
+            frames = get_arpeggio_frames(x, lcn, time.time(), samplerate, arpeggio_secs, save_steps, arpeggio_amp_step)
             for i in range(lcn):
                 save_steps[i] = frames[i][-1]
         else:
             frames = [1] * lcn
-        output = sum(frames[i] * waveform(x * 2 ** (n / 12)) for i, n in enumerate(chord_notes))
-        if not arpeggio_secs:
-            output /= lcn  # using lcn instead of the expectation value np.sqrt(lcn) to avoid clipping
+        output = np.sum([frames[i] * harmonizer(waveform, x * 2 ** (n / 12), drawbars[ctrl.trans_register['syn'] % len(drawbars)], drawbar_notes=drawbar_notes) for i, n in enumerate(chord_for_quality) if np.any(frames[i])], axis=0)
+        if output.shape != x.shape:
+            output = np.zeros_like(x)
+        elif not arpeggio_secs:
+            output /= lcn  # not normalizing with sqrt to avoid clipping
         return output
     return func
 

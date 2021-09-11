@@ -1,5 +1,6 @@
 asciimatics
 librosa
+numba
 numpy
 rtmidi
 git+https://github.com/eyaler/pysinewave

@@ -30,8 +30,8 @@ Musical instruments:
 
 Synths:
 - Sine waves
-- Chords
-- Arpeggio 
+- Chords with [Hammond drawbar harmonizer](https://hammondorganco.com/wp-content/uploads/2015/06/03-DRAWBARS-PERCUSSION-corrected.pdf)
+- Arpeggiator
 - Detuned saw
 - Detuned saw chord
 - Sampler + slicer +

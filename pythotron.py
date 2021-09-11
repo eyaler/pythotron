@@ -20,12 +20,16 @@ min_db = -120
 interp_hz_per_sec = 200
 synth_max_bend_semitones = 16/15  # == 5/3 cent per step
 sampler_max_bend_semitones = 3.2  # == 5 cent per step
-interp_amp_per_sec = 100
+interp_amp_per_sec = 200
 samplerate = 44100
 cutoff = 2000000000
 notes = [[0, 2, 4, 5, 7, 9, 11, 12], [0, 2, 3, 5, 7, 8, 10, 12]]  # major scale, natural minor scale
-C = SimpleNamespace(M=[0, 4, 7, 11], m=[0, 3, 7, 10], d=[0, 3, 6, 10])  # by default seventh=False and the last note is ignored
-chord_notes = [[C.M, C.m, C.m, C.M, C.M, C.m, C.d], [C.m, C.d, C.M, C.m, C.m, C.M, C.M]]  # major scale, natural minor scale
+C = SimpleNamespace(D=[0, 4, 7, 10], M=[0, 4, 7, 11], m=[0, 3, 7, 10], d=[0, 3, 6, 10])  # by default seventh=False and the last note is ignored
+chord_notes = [[C.M, C.m, C.m, C.M, C.D, C.m, C.d], [C.m, C.d, C.M, C.m, C.m, C.M, C.D]]  # major scale, natural minor scale
+asos_notes = [[2, 4, 4, 6, 7, 9, 11, 11]] * 2
+asos_chords = [[C.M, C.m, C.M, C.M, C.M, C.M, C.m, C.M], [C.M, C.m, C.M, C.M, C.m, C.M, C.m, C.M]]
+drawbar_notes = [-12, 7, 0, 12, 19, 24, 28, 31, 36]
+drawbars = [None, '008080800', '868868446', '888']  # unsion, clarinet, full organ, jimmy smith
 detune_semitones = 0.02
 arpeggio_secs = 0.25
 arpeggio_amp_step = 0.005
@@ -35,14 +39,12 @@ stretch_window_secs = 0.25
 stretch_slice_secs = 0.5
 stretch_max_scrub_secs = None
 stretch_advance_factor = 0.1  # == 1 / stretch_factor
-asos_notes = [2, 4, 4, 6, 7, 9, 11, 11]
-asos_chords = [C.M, C.m, C.M, C.M, C.M, C.M, C.m, C.M]
 synths = [('sine', np.sin),
-          ('chord', partial(chord, chord_notes=chord_notes)),
-          ('ASOS', partial(chord, chord_notes=asos_chords)),
-          ('arpeggio-up7', partial(chord, chord_notes=chord_notes, seventh=True, arpeggio_order=1, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
+          ('chord', partial(chord, chord_notes=chord_notes, drawbars=drawbars, drawbar_notes=drawbar_notes)),
+          ('ASOS-CV', partial(chord, chord_notes=asos_chords, drawbars=drawbars, drawbar_notes=drawbar_notes)),
+          ('arpeggio-up7', partial(chord, chord_notes=chord_notes, drawbars=drawbars, drawbar_notes=drawbar_notes, seventh=True, arpeggio_order=1, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
           ('dsaw', dsaw(detune_semitones=detune_semitones)),
-          ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones))),
+          ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones), chord_notes=chord_notes, drawbars=drawbars, drawbar_notes=drawbar_notes)),
           ('smp:loop', partial(loop, max_bend_semitones=sampler_max_bend_semitones, slice_secs=loop_slice_secs, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
           ('smp:stretch+rev', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, extend_reversal=True, samplerate=samplerate)),
           ('smp:stretch', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
@@ -78,6 +80,8 @@ record_color = Screen.COLOUR_MAGENTA
 overlay_fg_color = Screen.COLOUR_YELLOW
 overlay_attr = Screen.A_BOLD
 overlay_bg_color = Screen.COLOUR_BLUE
+drawbar_bg_colors = [Screen.COLOUR_RED, Screen.COLOUR_RED, Screen.COLOUR_WHITE, Screen.COLOUR_WHITE, Screen.COLOUR_BLACK, Screen.COLOUR_WHITE, Screen.COLOUR_BLACK, Screen.COLOUR_BLACK, Screen.COLOUR_WHITE]
+
 
 help_text = '''
 h    Help show/hide
@@ -103,8 +107,7 @@ cycle                    toggle knobs mode: pitch bend <-> pitch lock (synth) / 
 track rewind/forward     change scale
 marker rewind/forward    change synths and samplers
 rewind/forward           change sample file
-'''.strip().splitlines()
-help_text = [line.strip() for line in help_text]
+'''
 
 solo_exclusive_text = 'SOLO EXCL'
 solo_defeats_mute_text = 'SOLO>MUTE'
@@ -117,20 +120,28 @@ record_exclusive_y = 3
 
 note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 note_names += [x.lower() for x in note_names]
+chord2quality = {tuple(v[:3]): k for k, v in C.__dict__.items()}
 
 if not isinstance(notes[0], (list, tuple)):
     notes = [notes]
+assert all(len(n) >= num_controls for n in notes), ([len(n) for n in notes], num_controls)
+
 if not isinstance(chord_notes[0], (list, tuple)):
     chord_notes = [chord_notes]
 if not isinstance(chord_notes[0][0], (list, tuple)):
     chord_notes = [chord_notes]
-assert all(len(n) == num_controls for n in notes), ([len(n) for n in notes], num_controls)
+assert len(notes) >= len(chord_notes) and not len(notes) % len(chord_notes), (len(notes), len(chord_notes))
+
+if not isinstance(drawbars, (list, tuple)) or not hasattr(drawbars[-1], '__len__'):
+    drawbars = [drawbars]
+
 synth_names, synth_funcs = zip(*synths)
 assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
 assert len(synth_funcs) == len(set(synth_funcs)), sorted(x for x in synth_funcs if synth_funcs.count(x) > 1)
+
+help_text = [line.strip() for line in help_text.strip().splitlines()]
 help_keys = [line[0].lower() for line in help_text if len(line) > 1 and line[1] in (' ', '\t')]
 assert len(help_keys) == len(set(help_keys)), sorted(x for x in help_keys if help_keys.count(x) > 1)
-chord2quality = {tuple(v[:3]): k for k, v in C.__dict__.items()}
 
 
 def hasattr_partial(f, attr):
@@ -151,16 +162,34 @@ class Soundscape:
     def sample_disp(self):
         return self.sample_path.split(sample_folder + os.sep, 1)[-1]
 
+    @property
+    def drawbar_disp(self):
+        synth = synths[self.synth][1]
+        if not hasattr(synth, 'keywords') or 'drawbars' not in synth.keywords:
+            return ''
+        drawbars = synth.keywords['drawbars']
+        drawbar = drawbars[self.ctrl.trans_register['syn'] % len(drawbars)]
+        if drawbar is None:
+            return ''
+        if not isinstance(drawbar, str):
+            drawbar = ''.join(drawbar).ljust(len(drawbar_notes), '0')
+        drawbar = drawbar[:2] + ' ' + drawbar[2:7] + ' ' + drawbar[7:]
+        return drawbar
+
+    @property
+    def second_disp(self):
+        return self.sample_disp if synths[self.synth][0].lower().startswith('smp') else self.drawbar_disp
+
     def get_note(self, k, ret_quality=False):
         active_notes = notes
         active_chords = chord_notes
         if synths[self.synth][0].lower().startswith('asos'):
-            active_notes = [asos_notes]
-            active_chords = [asos_chords]
-        scale = self.ctrl.track_register % len(active_notes)
-        note = active_notes[scale][k] + self.ctrl.track_register // len(active_notes)
+            active_notes = asos_notes
+            active_chords = asos_chords
+        scale_quality = self.ctrl.track_register % len(active_notes)
+        note = active_notes[scale_quality][k] + self.ctrl.track_register // len(active_notes)
         if ret_quality:
-            return note, chord2quality.get(tuple(active_chords[scale][k % len(active_chords[scale])][:3]), ' ')
+            return note, chord2quality.get(tuple(active_chords[scale_quality][k % len(active_chords[scale_quality])][:3]), ' ')
         return note
 
     def instantiate_waveform(self, synth, track=None):
@@ -198,8 +227,8 @@ class Soundscape:
             self.tracks[k].play()
 
     def update(self):
-        if self.sample_ind != self.ctrl.trans_register:
-            self.load_sample(self.ctrl.trans_register)
+        if self.sample_ind != self.ctrl.trans_register['smp']:
+            self.load_sample(self.ctrl.trans_register['smp'])
         synth = self.ctrl.marker_register % len(synths)
         self.ctrl.toggle_knob_mode(synths[synth][0].lower().startswith('smp'))
         for k in range(num_controls):
@@ -244,7 +273,7 @@ class Controller:
         self.transport = self.new_transport.copy()
         self.track_register = 0
         self.marker_register = 0
-        self.trans_register = 0
+        self.trans_register = {'syn': 0, 'smp': 0}
         self.reset_midi()
         self.blink_leds()
 
@@ -392,9 +421,9 @@ class Controller:
                     self.marker_register += 1
                     refresh_knobs = True
                 elif trans == 'rewind':
-                    self.trans_register -= 1
+                    self.trans_register[self.knob_mode[:3]] -= 1
                 elif trans == 'forward':
-                    self.trans_register += 1
+                    self.trans_register[self.knob_mode[:3]] += 1
             if external_led_mode and trans in transport_led:
                 self.send_msg(transport_cc[trans], v)
         if refresh_knobs:
@@ -415,7 +444,7 @@ def main_loop(screen, ctrl, sound):
     screen.clear()
     screen.set_title(title)
     synth_disp = None
-    sample_disp = None
+    second_disp = None
 
     while True:
         if screen.has_resized():
@@ -431,21 +460,25 @@ def main_loop(screen, ctrl, sound):
 
         screen_refresh = bool(ctrl.new_controls)
 
-        if sample_disp != sound.sample_disp or synth_disp != sound.synth_disp:
+        if second_disp != sound.second_disp or synth_disp != sound.synth_disp:
             screen_refresh = True
-            if sample_disp:
-                screen.print_at(' ' * len(sample_disp), 0, 1, bg=bg_color)
-            sample_disp = sound.sample_disp
+            if second_disp:
+                screen.print_at(' ' * len(second_disp), 0, 1, bg=bg_color)
+            second_disp = sound.second_disp
             if synths[sound.synth][0].lower().startswith('smp'):
-                screen.print_at(sample_disp, 0, 1,
-                                colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
+                screen.print_at(second_disp, 0, 1, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
+            else:
+                i = 0
+                for x, c in enumerate(second_disp):
+                    if c != ' ':
+                        screen.print_at(c, x, 1, colour=overlay_fg_color, attr=overlay_attr, bg=drawbar_bg_colors[i])
+                        i += 1
 
             if synth_disp != sound.synth_disp:
                 if synth_disp:
                     screen.print_at(' ' * len(synth_disp), 0, 0, bg=bg_color)
                 synth_disp = sound.synth_disp
-                screen.print_at(synth_disp, 0, 0,
-                                colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
+                screen.print_at(synth_disp, 0, 0, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
 
         for cc, v in ctrl.new_controls.items():
             k = cc - slider_cc
@@ -459,6 +492,8 @@ def main_loop(screen, ctrl, sound):
                     label = ' ' + str(k+1)[::-1]
                 else:
                     note, quality = sound.get_note(k, ret_quality=True)
+                    if 'chord' not in str(synths[sound.synth][1]):
+                        quality = ' '
                     label = quality + note_names[note % len(note_names)]
 
                 for i, char in enumerate(label.ljust(3)):
