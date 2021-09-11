@@ -28,16 +28,18 @@ Musical instruments:
 - Finger Theremin (TBD)
 - Phased Looper (TBD)
 
-Synths:
+Synths / samplers / effects:
 - Sine waves
-- Chords with [Hammond drawbar harmonizer](https://hammondorganco.com/wp-content/uploads/2015/06/03-DRAWBARS-PERCUSSION-corrected.pdf)
-- Arpeggiator
 - Detuned saw
-- Detuned saw chord
-- Sampler + slicer +
-  - Looper
-  - [Paulstretch](http://hypermammut.sourceforge.net/paulstretch) stretch looper 
-  - Paulstretch freeze (oh yeah!)
+- Chords
+- Arpeggiator
+- [Hammond drawbar harmonizer](https://hammondorganco.com/wp-content/uploads/2015/06/03-DRAWBARS-PERCUSSION-corrected.pdf)
+- Sample slicer and looper
+- [Paulstretch](http://hypermammut.sourceforge.net/paulstretch) stretch and freeze (oh yeah!)
+
+Effects:
+- Pitch bending
+- Temporal scrubbing 
     
 Setup:
 - pip install -r requirements.txt

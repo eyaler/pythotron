@@ -103,10 +103,10 @@ e    record-arm Exclusive mode Toggle
 u    solo/mute/record-arm off all tracks
 1-0  choose synth
 
-cycle                    toggle knobs mode: pitch bend <-> pitch lock (synth) / temporal scrub (sampler)
-track rewind/forward     change scale
+cycle                    toggle knobs mode: pitch bend <-> pitch lock (synths) / temporal scrub (samplers)
+track rewind/forward     change scale (major -> minor -> major + semitone -> minor + semitone -> ...)
 marker rewind/forward    change synths and samplers
-rewind/forward           change sample file
+rewind/forward           change drawbar harmonizer preset (synths) / sample file (samplers)
 '''
 
 solo_exclusive_text = 'SOLO EXCL'
