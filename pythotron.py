@@ -3,13 +3,14 @@ from asciimatics.event import KeyboardEvent
 from asciimatics.exceptions import ResizeScreenError
 import copy
 from functools import partial
+from inspect import signature
 import librosa
 import numpy as np
 import os
 from pysinewave import SineWave  # note: using the customized https://github.com/eyaler/pysinewave
 import re
 import rtmidi
-from synths import dsaw, chord, loop, paulstretch
+from synths import dsaw, chord, loop, paulstretch, get_slice_len, get_windowsize
 import sys
 import time
 from types import SimpleNamespace
@@ -34,6 +35,7 @@ detune_semitones = 0.02
 arpeggio_secs = 0.25
 arpeggio_amp_step = 0.005
 loop_slice_secs = 0.25
+sampler_elongate_factor = 0.1
 loop_max_scrub_secs = None
 stretch_window_secs = 0.25
 stretch_slice_secs = 0.5
@@ -45,9 +47,9 @@ synths = [('sine', np.sin),
           ('arpeggio-up7', partial(chord, chord_notes=chord_notes, drawbars=drawbars, drawbar_notes=drawbar_notes, seventh=True, arpeggio_order=1, arpeggio_secs=arpeggio_secs, arpeggio_amp_step=arpeggio_amp_step, samplerate=samplerate)),
           ('dsaw', dsaw(detune_semitones=detune_semitones)),
           ('dsaw-chord', partial(chord, waveform=dsaw(detune_semitones=detune_semitones), chord_notes=chord_notes, drawbars=drawbars, drawbar_notes=drawbar_notes)),
-          ('smp:loop', partial(loop, max_bend_semitones=sampler_max_bend_semitones, slice_secs=loop_slice_secs, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
-          ('smp:stretch+rev', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, extend_reversal=True, samplerate=samplerate)),
-          ('smp:stretch', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
+          ('smp:loop', partial(loop, max_bend_semitones=sampler_max_bend_semitones, slice_secs=loop_slice_secs, elongate_factor=sampler_elongate_factor, max_scrub_secs=loop_max_scrub_secs, extend_reversal=True, samplerate=samplerate)),
+          ('smp:stretch+rev', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, elongate_factor=sampler_elongate_factor, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, extend_reversal=True, samplerate=samplerate)),
+          ('smp:stretch', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, slice_secs=stretch_slice_secs, elongate_factor=sampler_elongate_factor, max_scrub_secs=stretch_max_scrub_secs, advance_factor=stretch_advance_factor, samplerate=samplerate)),
           ('smp:freeze', partial(paulstretch, max_bend_semitones=sampler_max_bend_semitones, windowsize_secs=stretch_window_secs, max_scrub_secs=stretch_max_scrub_secs, samplerate=samplerate)),
           ]
 knob_modes = ['syn-pitch', 'smp-pitch', 'smp-scrub']
@@ -88,7 +90,7 @@ h    Help show/hide
 q    Quit
 i    Initialize
 p    reset midi Ports
-k    reset Knobs (for the active knobs mode)
+k    reset Knobs (for the active knob mode)
 l    reset sliders
 s    Solo on all tracks
 a    solo off All tracks
@@ -103,8 +105,8 @@ e    record-arm Exclusive mode Toggle
 u    solo/mute/record-arm off all tracks
 1-0  choose synth
 
-cycle                    toggle knobs mode: pitch bend <-> pitch lock (synths) / temporal scrub (samplers)
-track rewind/forward     change scale (major -> minor -> major + semitone -> minor + semitone -> ...)
+cycle                    toggle knob mode: pitch bend <-> pitch lock (synths) / temporal scrub (samplers)
+track rewind/forward     change scale maj->min->maj+1/2->min+1/2->... (synths) / slice duration and reversal (samplers)
 marker rewind/forward    change synths and samplers
 rewind/forward           change drawbar harmonizer preset (synths) / sample file (samplers)
 '''
@@ -148,6 +150,15 @@ def hasattr_partial(f, attr):
     return hasattr(f, attr) or hasattr(f, 'func') and hasattr(f.func, attr)
 
 
+def get_default(f, arg):
+    if arg in f.keywords:
+        return f.keywords[arg]
+    params = signature(f).parameters
+    if arg in params:
+        return params[arg].default
+    return None
+
+
 class Soundscape:
     def __init__(self, ctrl):
         self.tracks = []
@@ -160,7 +171,16 @@ class Soundscape:
 
     @property
     def sample_disp(self):
-        return self.sample_path.split(sample_folder + os.sep, 1)[-1]
+        synth = synths[self.synth][1]
+        slice_secs_str = ''
+        if hasattr(synth, 'keywords'):
+            samplerate = get_default(synth, 'samplerate')
+            windowsize_secs = get_default(synth, 'windowsize_secs')
+            windowsize = None if not windowsize_secs else get_windowsize(windowsize_secs, samplerate)
+            slice_len = get_slice_len(get_default(synth, 'slice_secs'), self.ctrl.track_register['smp'], get_default(synth, 'elongate_factor'), samplerate, self.sample, windowsize=windowsize, advance_factor=get_default(synth, 'advance_factor'))
+            slice_secs_str = f'\n{slice_len / samplerate:.3f}'
+            slice_secs_str = slice_secs_str[:-2] + slice_secs_str[-2:].rstrip('0')
+        return self.sample_path.split(sample_folder + os.sep, 1)[-1] + slice_secs_str
 
     @property
     def drawbar_disp(self):
@@ -168,7 +188,7 @@ class Soundscape:
         if not hasattr(synth, 'keywords') or 'drawbars' not in synth.keywords:
             return ''
         drawbars = synth.keywords['drawbars']
-        drawbar = drawbars[self.ctrl.trans_register['syn'] % len(drawbars)]
+        drawbar = drawbars[self.ctrl.transport_register['syn'] % len(drawbars)]
         if drawbar is None:
             return ''
         if not isinstance(drawbar, str):
@@ -186,8 +206,8 @@ class Soundscape:
         if synths[self.synth][0].lower().startswith('asos'):
             active_notes = asos_notes
             active_chords = asos_chords
-        scale_quality = self.ctrl.track_register % len(active_notes)
-        note = active_notes[scale_quality][k] + self.ctrl.track_register // len(active_notes)
+        scale_quality = self.ctrl.track_register['syn'] % len(active_notes)
+        note = active_notes[scale_quality][k] + self.ctrl.track_register['syn'] // len(active_notes)
         if ret_quality:
             return note, chord2quality.get(tuple(active_chords[scale_quality][k % len(active_chords[scale_quality])][:3]), ' ')
         return note
@@ -227,8 +247,8 @@ class Soundscape:
             self.tracks[k].play()
 
     def update(self):
-        if self.sample_ind != self.ctrl.trans_register['smp']:
-            self.load_sample(self.ctrl.trans_register['smp'])
+        if self.sample_ind != self.ctrl.transport_register['smp']:
+            self.load_sample(self.ctrl.transport_register['smp'])
         synth = self.ctrl.marker_register % len(synths)
         self.ctrl.toggle_knob_mode(synths[synth][0].lower().startswith('smp'))
         for k in range(num_controls):
@@ -271,9 +291,9 @@ class Controller:
         self.states = copy.deepcopy(self.new_states)
         self.new_transport = {k: False for k in transport_cc}
         self.transport = self.new_transport.copy()
-        self.track_register = 0
+        self.track_register = {'syn': 0, 'smp': 0}
         self.marker_register = 0
-        self.trans_register = {'syn': 0, 'smp': 0}
+        self.transport_register = {'syn': 0, 'smp': 0}
         self.reset_midi()
         self.blink_leds()
 
@@ -409,10 +429,10 @@ class Controller:
         for trans, v in self.new_transport.items():
             if v:
                 if trans == 'track_rewind':
-                    self.track_register -= 1
+                    self.track_register[self.knob_mode[:3]] -= 1
                     refresh_knobs = True
                 elif trans == 'track_forward':
-                    self.track_register += 1
+                    self.track_register[self.knob_mode[:3]] += 1
                     refresh_knobs = True
                 elif trans == 'marker_rewind':
                     self.marker_register -= 1
@@ -421,9 +441,9 @@ class Controller:
                     self.marker_register += 1
                     refresh_knobs = True
                 elif trans == 'rewind':
-                    self.trans_register[self.knob_mode[:3]] -= 1
+                    self.transport_register[self.knob_mode[:3]] -= 1
                 elif trans == 'forward':
-                    self.trans_register[self.knob_mode[:3]] += 1
+                    self.transport_register[self.knob_mode[:3]] += 1
             if external_led_mode and trans in transport_led:
                 self.send_msg(transport_cc[trans], v)
         if refresh_knobs:
@@ -463,10 +483,12 @@ def main_loop(screen, ctrl, sound):
         if second_disp != sound.second_disp or synth_disp != sound.synth_disp:
             screen_refresh = True
             if second_disp:
-                screen.print_at(' ' * len(second_disp), 0, 1, bg=bg_color)
+                for i, line in enumerate(second_disp.splitlines()):
+                    screen.print_at(' ' * len(line), 0, 1 + i, bg=bg_color)
             second_disp = sound.second_disp
             if synths[sound.synth][0].lower().startswith('smp'):
-                screen.print_at(second_disp, 0, 1, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
+                for i, line in enumerate(second_disp.splitlines()):
+                    screen.print_at(line, 0, 1 + i, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
             else:
                 i = 0
                 for x, c in enumerate(second_disp):
@@ -589,7 +611,7 @@ def main_loop(screen, ctrl, sound):
                 sound.reset()
             elif c in ['p', 'פ']:  # reset midi Ports
                 ctrl.reset_midi()
-            elif c in ['k', 'ל']:  # reset Knobs (for the active knobs mode)
+            elif c in ['k', 'ל']:  # reset Knobs (for the active knob mode)
                 ctrl.reset_knobs()
             elif c in ['l', 'ך']:  # reset sliders
                 ctrl.reset_sliders()
