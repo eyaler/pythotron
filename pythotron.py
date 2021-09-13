@@ -174,10 +174,14 @@ class Soundscape:
         synth = synths[self.synth][1]
         slice_secs_str = ''
         if hasattr(synth, 'keywords'):
+            slice_secs = get_default(synth, 'slice_secs')
             samplerate = get_default(synth, 'samplerate')
             windowsize_secs = get_default(synth, 'windowsize_secs')
             windowsize = None if not windowsize_secs else get_windowsize(windowsize_secs, samplerate)
-            slice_len = get_slice_len(get_default(synth, 'slice_secs'), self.ctrl.track_register['smp'], get_default(synth, 'elongate_factor'), samplerate, self.sample, windowsize=windowsize, advance_factor=get_default(synth, 'advance_factor'))
+            advance_factor = get_default(synth, 'advance_factor')
+            elongate_factor = get_default(synth, 'elongate_factor')
+            extend_reversal = get_default(synth, 'extend_reversal')
+            slice_len = get_slice_len(self.sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor, elongate_step=self.ctrl.track_register['smp'], elongate_factor=elongate_factor, extend_reversal=extend_reversal)
             slice_secs_str = f'\n{slice_len / samplerate:.3f}'
             slice_secs_str = slice_secs_str[:-2] + slice_secs_str[-2:].rstrip('0')
         return self.sample_path.split(sample_folder + os.sep, 1)[-1] + slice_secs_str

@@ -1,4 +1,7 @@
 # A simple MIDI controller audiovisual monitor
+### (and wannabe musical instrument)
+### By Eyal Gruss
+#### https://eyalgruss.com
 
 <p align="center">
 <img src="pythotron.gif" /> 
@@ -57,13 +60,20 @@ Setup:
 - For MP3 support [install ffmpeg or gstreamer](https://github.com/librosa/librosa#audioread-and-mp3-support)
 
 Known issues:
-- Stereo samples are rendered as duplicated mono (due to using [pysinewave](https://github.com/daviddavini/pysinewave) library)
-- Inefficient implementation requires high CPU settings to avoid clicks (make sure your laptop is plugged in)
+- Need a lowpass filter to reduce paulstretch hiss and improve saws
+- No support yet for pitch shifting samples to a *given* note
+- No easy way to allocate a different sample for each track 
+- No way to save and recover the controller state
+- My inefficient implementation requires high CPU settings to avoid glitches and clicks (make sure your laptop is plugged in)
 - Sample looper pitch bending and scrubbing cause significant clicks
+- Code needs to be refactored to use classes instead of function factories 
+- Due to the currently used framework of [pysinewave](https://github.com/daviddavini/pysinewave): 
+  - Controller latency is high
+  - Stereo samples are collapsed to duplicated mono
 
 I began this because I could not find an existing easy plug-and-play visual or audial monitor for my controller. 
 But if it was not evident, I am using this as a platform to learn more about music theory, audio effects and sound synthesis, 
-thinking about new "metaphors" to allow me as a non-musician to create and perform in the audio domain, and working on developing this into a performative musical instrument.
+thinking about new "metaphors" to allow me, as a non-musician, to create and perform in the audio domain, and working on developing this into a performative musical instrument.
 In the famous words of Feynman: What I cannot code in Python, I do not understand.
 
 Press "h" for help

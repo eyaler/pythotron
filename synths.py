@@ -96,24 +96,45 @@ def get_windowsize(windowsize_secs, samplerate):
     return windowsize // 2 * 2
 
 
-def get_slice_len(slice_secs, elongate_knob, elongate_factor, samplerate, sample, windowsize=None, advance_factor=None):
+def get_slice_len(sample, slice_secs, samplerate, windowsize=None, advance_factor=0, elongate_step=0, elongate_factor=0, extend_reversal=False):
     if windowsize and not advance_factor:
         return windowsize
+    sample_len = sample.shape[-1]
     if slice_secs is None:
-        return sample.shape[-1]
-    slice_secs *= (1 + elongate_knob * elongate_factor)
-    slice_len = min(max(round(abs(slice_secs) * samplerate), windowsize if windowsize else 1), sample.shape[-1])
-    if slice_secs < 0:
-        slice_len *= -1
-    return slice_len
+        sssr = sample_len
+    else:
+        sssr = abs(slice_secs) * samplerate
+    windowsize = windowsize or round(samplerate / 100)
+    rsssr = max(windowsize, min(round(sssr), sample_len))
+    if not elongate_step or not elongate_factor:
+        return int(rsssr)
+    step = sssr * elongate_factor
+    slice_lens_1 = []
+    slice_lens_2 = []
+    if not extend_reversal:
+        slice_lens_1 = list(np.arange(-rsssr, -sample_len, -step))[::-1]
+        if round(slice_lens_1[0]) != -sample_len:
+            slice_lens_1.insert(0, -sample_len)
+        slice_lens_2 = list(np.rint(np.arange(-rsssr, -windowsize, step)))[1:]
+        if round(slice_lens_2[-1]) != -windowsize:
+            slice_lens_2.append(-windowsize)
+    slice_lens_3 = list(np.rint(np.arange(rsssr, windowsize, -step)))[::-1]
+    if round(slice_lens_3[0]) != windowsize:
+        slice_lens_3.insert(0, windowsize)
+    slice_lens_4 = list(np.rint(np.arange(rsssr, sample_len, step)))[1:]
+    if round(slice_lens_4[-1]) != sample_len:
+        slice_lens_4.append(sample_len)
+    slice_lens = slice_lens_1 + slice_lens_2 + slice_lens_3 + slice_lens_4
+    index_shift = len(slice_lens_1) if slice_secs < 0 and not extend_reversal else len(slice_lens) - len(slice_lens_4)
+    return int(round(slice_lens[(index_shift - 1 + elongate_step) % len(slice_lens)]))
 
 
-def slice_scrub_bend(elongate_knob, ctrl, sample, slice_len, slice_secs, elongate_factor, samplerate, scrub_len, sample_len_for_slicing, max_scrub_secs, extend_reversal, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, freqs=None, windowsize=None, advance_factor=0):
-    if elongate_knob != ctrl.track_register['smp']:
-        elongate_knob = ctrl.track_register['smp']
-        slice_len = get_slice_len(slice_secs, elongate_knob, elongate_factor, samplerate, sample, windowsize=windowsize, advance_factor=advance_factor)
+def slice_scrub_bend(elongate_step, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, extend_reversal, scrub_len, sample_len_for_slicing, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, freqs=None, windowsize=None, advance_factor=0):
+    if elongate_step != ctrl.track_register['smp']:
+        elongate_step = ctrl.track_register['smp']
+        slice_len = get_slice_len(sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor, elongate_step=elongate_step, elongate_factor=elongate_factor, extend_reversal=extend_reversal)
         if scrub_len is None:
-            scrub_len = sample.shape[-1] - abs(slice_len)
+            scrub_len = sample.shape[-1] - get_slice_len(sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor)
             sample_len_for_slicing = scrub_len
             if max_scrub_secs:
                 scrub_len = min(scrub_len, round(max_scrub_secs * samplerate))
@@ -132,7 +153,7 @@ def slice_scrub_bend(elongate_knob, ctrl, sample, slice_len, slice_secs, elongat
     if pitch_knob != ctrl.get_knob(track, mode='smp-pitch'):
         pitch_knob = ctrl.get_knob(track, mode='smp-pitch')
         shifted = None
-    return elongate_knob, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, freqs
+    return elongate_step, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, freqs
 
 
 def loop(max_bend_semitones=12, slice_secs=0.25, elongate_factor=0.1, max_scrub_secs=None, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
@@ -143,7 +164,7 @@ def loop(max_bend_semitones=12, slice_secs=0.25, elongate_factor=0.1, max_scrub_
 
     channels = len(sample.shape)
 
-    elongate_knob = None
+    elongate_step = None
     slice_len = None
     scrub_len = None
     sample_len_for_slicing = None
@@ -154,8 +175,8 @@ def loop(max_bend_semitones=12, slice_secs=0.25, elongate_factor=0.1, max_scrub_
     shifted = None
 
     def func(x):
-        nonlocal elongate_knob, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted
-        elongate_knob, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, _ = slice_scrub_bend(elongate_knob, ctrl, sample, slice_len, slice_secs, elongate_factor, samplerate, scrub_len, sample_len_for_slicing, max_scrub_secs, extend_reversal, pos, scrub_knob, track, loop_smp, pitch_knob, shifted)
+        nonlocal elongate_step, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted
+        elongate_step, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, _ = slice_scrub_bend(elongate_step, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, extend_reversal, scrub_len, sample_len_for_slicing, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted)
         if shifted is None:
             shifted = loop_smp
             if pitch_knob:
@@ -193,7 +214,7 @@ def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, elo
     # create Window window
     window = (1 - np.linspace(-1, 1, windowsize) ** 2) ** 1.25
 
-    elongate_knob = None
+    elongate_step = None
     slice_len = None
     scrub_len = None
     sample_len_for_slicing = None
@@ -207,8 +228,8 @@ def paulstretch(max_bend_semitones=12, windowsize_secs=0.25, slice_secs=0.5, elo
     later = old_windowed_buf[..., :0]
 
     def func(x):
-        nonlocal elongate_knob, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, freqs, old_windowed_buf, later
-        elongate_knob, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, freqs = slice_scrub_bend(elongate_knob, ctrl, sample, slice_len, slice_secs, elongate_factor, samplerate, scrub_len, sample_len_for_slicing, max_scrub_secs, extend_reversal, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, freqs=freqs, windowsize=windowsize, advance_factor=advance_factor)
+        nonlocal elongate_step, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, freqs, old_windowed_buf, later
+        elongate_step, slice_len, scrub_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, freqs = slice_scrub_bend(elongate_step, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, extend_reversal, scrub_len, sample_len_for_slicing, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, freqs=freqs, windowsize=windowsize, advance_factor=advance_factor)
         while later.shape[-1] < x.shape[-1]:
             if freqs is None or advance_factor:
                 # get the windowed buffer
