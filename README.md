@@ -7,7 +7,7 @@
 <img src="pythotron.gif" /> 
 </p>
 
-###Supported controls:
+### Supported controls:
 - CC MIDI input   
   - 8 sliders
   - 8 knobs
@@ -55,7 +55,7 @@
 - Put your audio samples in "samples" folder
 - For MP3 support [install ffmpeg or gstreamer](https://github.com/librosa/librosa#audioread-and-mp3-support)
 
-###Known issues:
+### Known issues:
 - Need a lowpass filter to reduce paulstretch hiss and improve saws
 - No support yet for pitch shifting samples to a *given* note
 - No easy way to allocate a different sample for each track 
@@ -67,9 +67,9 @@
   - Controller latency is high
   - Stereo samples are collapsed to duplicated mono
 
-I began this because I could not find an existing easy plug-and-play visual or audial monitor for my controller. 
+> I began this because I could not find an existing easy plug-and-play visual or audial monitor for my controller. 
 But if it was not evident, I am using this as a platform to learn more about music theory, audio effects and sound synthesis, 
 thinking about new "metaphors" to allow me, as a non-musician, to create and perform in the audio domain, and working on developing this into a performative musical instrument.
-In the famous words of Feynman: What I cannot code in Python, I do not understand.
+In the famous words of Feynman: "What I cannot code in Python, I do not understand."
 
 #### Press "h" for help
