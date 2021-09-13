@@ -39,11 +39,7 @@ Synths / samplers / effects:
 - [Hammond drawbar harmonizer](https://hammondorganco.com/wp-content/uploads/2015/06/03-DRAWBARS-PERCUSSION-corrected.pdf)
 - Sample slicer and looper
 - [Paulstretch](http://hypermammut.sourceforge.net/paulstretch) stretch and freeze (oh yeah!)
-
-Effects:
-- Pitch bending
-- Temporal scrubbing 
-    
+ 
 Setup:
 - pip install -r requirements.txt
 - Code defaults settings are for KORG nanoKONTROL2
