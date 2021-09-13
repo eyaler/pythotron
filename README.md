@@ -7,7 +7,7 @@
 <img src="pythotron.gif" /> 
 </p>
 
-Supported controls:
+###Supported controls:
 - CC MIDI input   
   - 8 sliders
   - 8 knobs
@@ -23,7 +23,7 @@ Supported controls:
   - Several knob modes with memory
   - Reset knob and slider states
 
-Musical instruments:
+### Musical instruments:
 - Fader Organ:
   - Tracks = notes or sample slices
   - Sliders = volume
@@ -31,7 +31,7 @@ Musical instruments:
 - Finger Theremin (TBD)
 - Phased Looper (TBD)
 
-Synths / samplers / effects:
+### Synths / samplers / effects:
 - Sine waves
 - Detuned saw
 - Chords
@@ -40,7 +40,7 @@ Synths / samplers / effects:
 - Sample slicer and looper
 - [Paulstretch](http://hypermammut.sourceforge.net/paulstretch) stretch and freeze (oh yeah!)
  
-Setup:
+### Setup:
 - pip install -r requirements.txt
 - Code defaults settings are for KORG nanoKONTROL2
 - In KORG KONTROL Editor:
@@ -55,7 +55,7 @@ Setup:
 - Put your audio samples in "samples" folder
 - For MP3 support [install ffmpeg or gstreamer](https://github.com/librosa/librosa#audioread-and-mp3-support)
 
-Known issues:
+###Known issues:
 - Need a lowpass filter to reduce paulstretch hiss and improve saws
 - No support yet for pitch shifting samples to a *given* note
 - No easy way to allocate a different sample for each track 
@@ -72,4 +72,4 @@ But if it was not evident, I am using this as a platform to learn more about mus
 thinking about new "metaphors" to allow me, as a non-musician, to create and perform in the audio domain, and working on developing this into a performative musical instrument.
 In the famous words of Feynman: What I cannot code in Python, I do not understand.
 
-Press "h" for help
+#### Press "h" for help
