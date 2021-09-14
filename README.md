@@ -16,7 +16,8 @@
 - State/LED programmatic control:
   - solo/mute/record toggle all
   - solo/record exclusive mode
-  - Stop stops play and record
+  - Slider up solo exclusive "one-finger" mode
+  - Stop stops play and record (for future use)
 - Software override logic:
   - Mute override all
   - Solo defeats mute mode
