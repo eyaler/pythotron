@@ -4,6 +4,13 @@ import numpy as np
 import time
 
 
+gain_normalization_exponent = 1
+# controls the tradeoff between clipping artifacts and volume limiting when having multiple harmonics (chords, drawbars) per synth track
+# 0   == no normalization (louder with more harmonics, expect clipping)
+# 0.5 == normalize to RMS (average volume stays similar with more harmonics, expect clipping for high volume)
+# 1   == limiter (volume is lower with more harmonics and generally does not utilize the full dynamic range but no clipping)
+
+
 def sawtooth(x):  # 15x faster than scipy.signal.sawtooth which was too slow for fast transitions
     return np.mod(x, 2 * np.pi) / np.pi - 1
 
@@ -12,7 +19,7 @@ def dsaw(detune_semitones=0):
     def func(x):
         output = sawtooth(x * 2 ** (-detune_semitones / 2 / 12))
         if detune_semitones:
-            output = (output + sawtooth(x * 2 ** (detune_semitones / 2 / 12))) / 2  # # not normalizing with sqrt to avoid clipping
+            output = (output + sawtooth(x * 2 ** (detune_semitones / 2 / 12))) / 2 ** gain_normalization_exponent
         return output
     return func
 
@@ -35,7 +42,7 @@ def harmonizer(waveform, x, drawbar, drawbar_notes=hammond_drawbar_notes):
         return waveform(x)
     if isinstance(drawbar, str):
         drawbar = [int(c) for c in drawbar]
-    return np.sum([v * waveform(x * 2 ** (n / 12)) for v, n in zip(drawbar, drawbar_notes) if v], axis=0) / sum(drawbar)  # not normalizing with sqrt to avoid clipping
+    return np.sum([v * waveform(x * 2 ** (n / 12)) for v, n in zip(drawbar, drawbar_notes) if v], axis=0) / sum(drawbar) ** gain_normalization_exponent
 
 
 @jit(cache=True)
@@ -77,7 +84,7 @@ def chord(waveform=np.sin, chord_notes=(0,), seventh=False, drawbars=None, drawb
         if output.shape != x.shape:
             output = np.zeros_like(x)
         elif not arpeggio_secs:
-            output /= lcn  # not normalizing with sqrt to avoid clipping
+            output /= lcn ** gain_normalization_exponent
         return output
     return func
 
