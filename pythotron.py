@@ -216,7 +216,7 @@ class Soundscape:
         scale_quality = self.ctrl.track_register['syn'] % len(active_notes)
         note = active_notes[scale_quality][k] + self.ctrl.track_register['syn'] // len(active_notes)
         if ret_quality:
-            return note, chord2quality.get(tuple(sorted(x % 12 for x in (active_chords[scale_quality][k % len(active_chords[scale_quality])])[:3])), ' ')
+            return note, chord2quality.get(tuple(sorted(n % 12 for n in (active_chords[scale_quality][k % len(active_chords[scale_quality])])[:3])), ' ')
         return note
 
     def instantiate_waveform(self, synth, track=None):
