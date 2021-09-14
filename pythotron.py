@@ -113,16 +113,7 @@ down/up or track rewind/forward     change scale M->m->M+1/2->... (synths) / sli
 left/right or rewind/forward        change drawbar harmonizer preset (synths) / sample file (samplers)
 '''
 
-slider_up_text = 'SLIDER UP'
-solo_exclusive_text = 'SOLO EXCL'
-solo_defeats_mute_text = 'SOLO>MUTE'
-mute_override_text = 'MUTE OVER'
-record_exclusive_text = 'REC. EXCL'
-slider_up_y = 0
-solo_exclusive_y = 1
-solo_defeats_mute_y = 2
-mute_override_y = 3
-record_exclusive_y = 4
+global_controls = {'slider_up': 'SLIDER UP', 'solo_exclusive': 'SOLO EXCL', 'solo_defeats_mute': 'SOLO>MUTE', 'mute_override': 'MUTE OVER', 'record_exclusive': 'REC. EXCL'}
 
 note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 note_names += [x.lower() for x in note_names]
@@ -286,11 +277,7 @@ class Controller:
         self.reset()
 
     def reset(self):
-        self.mute_override = False
-        self.solo_exclusive = False
-        self.solo_defeats_mute = False
-        self.slider_up = False
-        self.record_exclusive = False
+        self.global_controls = {k: False for k in global_controls}
         self.show_help = False
         self.controls = {}
         self.new_controls = {}
@@ -409,17 +396,17 @@ class Controller:
                     break
 
     def update_all(self):  
-        if self.slider_up and 's' in state_cc:
+        if self.global_controls['slider_up'] and 's' in state_cc:
             for cc in self.new_controls:
                 k = cc - slider_cc
                 if 0 <= k < num_controls and self.new_controls[cc] > self.controls[cc] > 0:
                     self.new_states['s'][k] = True
 
-        if self.solo_exclusive or self.record_exclusive:
+        if self.global_controls['solo_exclusive'] or self.global_controls['record_exclusive']:
             for k in range(num_controls):
-                if self.solo_exclusive and 's' in state_cc and (self.new_states['s'].values()) and self.states['s'][k] and k not in self.new_states['s']:
+                if self.global_controls['solo_exclusive'] and 's' in state_cc and (self.new_states['s'].values()) and self.states['s'][k] and k not in self.new_states['s']:
                     self.new_states['s'][k] = False
-                if self.record_exclusive and 'r' in state_cc and any(self.new_states['r'].values()) and self.states['r'][k] and k not in self.new_states['r']:
+                if self.global_controls['record_exclusive'] and 'r' in state_cc and any(self.new_states['r'].values()) and self.states['r'][k] and k not in self.new_states['r']:
                     self.new_states['r'][k] = False
 
         self.controls.update(self.new_controls)
@@ -469,10 +456,24 @@ class Controller:
         self.new_transport = {}
 
     def is_effective_mute(self, k):
-        return self.mute_override or not self.solo_defeats_mute and 'm' in self.states and self.states['m'][k] or 's' in self.states and not self.states['s'][k] and any(self.states['s'].values())
+        return self.global_controls['mute_override'] or not self.global_controls['solo_defeats_mute'] and 'm' in self.states and self.states['m'][k] or 's' in self.states and not self.states['s'][k] and any(self.states['s'].values())
 
 
 def main_loop(screen, ctrl, sound):
+
+    def display_global_controls(control=None):
+        nonlocal screen_refresh
+        if control and ctrl.global_controls[control]:
+            return
+        screen_refresh = True
+        for y, (k, v) in enumerate(ctrl.global_controls.items()):
+            x = screen.width - len(global_controls[k])
+            if k == control:
+                screen.print_at(' ' * len(global_controls[k]), x, y, bg=bg_color)
+                break
+            elif control is None and v:
+                screen.print_at(global_controls[k], x, y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
+
     slider_size = screen.height // 2
     knob_size = min(screen.height // 2, max_knob_size)
     if knob_size % 2 == 0:
@@ -579,26 +580,7 @@ def main_loop(screen, ctrl, sound):
                                 attr=Screen.A_NORMAL if 'm' in ctrl.states and ctrl.states['m'][k] else Screen.A_BOLD,
                                 bg=record_color if 'r' in ctrl.states and ctrl.states['r'][k] and not hidden else bg_color)
 
-        if ctrl.slider_up:
-            screen_refresh = True
-            screen.print_at(slider_up_text, screen.width - len(slider_up_text), slider_up_y, colour=overlay_fg_color,
-                            attr=overlay_attr, bg=overlay_bg_color)
-
-        if ctrl.solo_exclusive:
-            screen_refresh = True
-            screen.print_at(solo_exclusive_text, screen.width - len(solo_exclusive_text), solo_exclusive_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
-
-        if ctrl.solo_defeats_mute:
-            screen_refresh = True
-            screen.print_at(solo_defeats_mute_text, screen.width - len(solo_defeats_mute_text), solo_defeats_mute_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
-
-        if ctrl.mute_override:
-            screen_refresh = True
-            screen.print_at(mute_override_text, screen.width - len(mute_override_text), mute_override_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
-
-        if ctrl.record_exclusive:
-            screen_refresh = True
-            screen.print_at(record_exclusive_text, screen.width - len(record_exclusive_text), record_exclusive_y, colour=overlay_fg_color, attr=overlay_attr, bg=overlay_bg_color)
+        display_global_controls()
 
         help_x = max(0, (screen.width - len(max(help_text, key=len))) // 2)
         help_y = max(0, (screen.height - len(help_text)) // 2)
@@ -642,46 +624,31 @@ def main_loop(screen, ctrl, sound):
                 ctrl.toggle_all('s', False)
             elif c in ['u', 'd', 'ו', 'ג']:
                 if c in ['u', 'ו']:  # slider Up solo exclusive "one-finger" mode toggle
-                    ctrl.slider_up = not ctrl.slider_up
-                    ctrl.solo_exclusive = ctrl.slider_up
+                    ctrl.global_controls['slider_up'] = not ctrl.global_controls['slider_up']
+                    ctrl.global_controls['solo_exclusive'] = ctrl.global_controls['slider_up']
                 elif c in ['d', 'ג']:  # solo exclusive mode toggle
-                    ctrl.solo_exclusive = not ctrl.solo_exclusive
-                if not ctrl.solo_exclusive:
-                    ctrl.slider_up = False
-                    screen_refresh = True
-                    screen.print_at(' ' * len(solo_exclusive_text), screen.width - len(solo_exclusive_text),
-                                    solo_exclusive_y, bg=bg_color)
-                if not ctrl.slider_up:
-                    screen_refresh = True
-                    screen.print_at(' ' * len(slider_up_text),
-                                    screen.width - len(slider_up_text),
-                                    slider_up_y, bg=bg_color)
+                    ctrl.global_controls['solo_exclusive'] = not ctrl.global_controls['solo_exclusive']
+                    if not ctrl.global_controls['solo_exclusive']:
+                        ctrl.global_controls['slider_up'] = False
+                display_global_controls('solo_exclusive')
+                display_global_controls('slider_up')
             elif c in ['f', 'כ']:  # solo deFeats mute toggle
-                ctrl.solo_defeats_mute = not ctrl.solo_defeats_mute
-                if not ctrl.solo_defeats_mute:
-                    screen_refresh = True
-                    screen.print_at(' ' * len(solo_defeats_mute_text), screen.width - len(solo_defeats_mute_text),
-                                    solo_defeats_mute_y, bg=bg_color)
+                ctrl.global_controls['solo_defeats_mute'] = not ctrl.global_controls['solo_defeats_mute']
+                display_global_controls('solo_defeats_mute')
             elif c in ['m', 'צ']:  # Mute on all tracks
                 ctrl.toggle_all('m', True)
             elif c in ['n', 'מ']:  # mute off all tracks
                 ctrl.toggle_all('m', False)
             elif c in ['o', 'ם']:  # mute Override all tracks toggle (software level)
-                ctrl.mute_override = not ctrl.mute_override
-                if not ctrl.mute_override:
-                    screen_refresh = True
-                    screen.print_at(' ' * len(mute_override_text), screen.width - len(mute_override_text),
-                                    mute_override_y, bg=bg_color)
+                ctrl.global_controls['mute_override'] = not ctrl.global_controls['mute_override']
+                display_global_controls('mute_override')
             elif c in ['r', 'ר']:  # Record-arm on all tracks
                 ctrl.toggle_all('r', True)
             elif c in ['t', 'א']:  # record-arm off all tracks
                 ctrl.toggle_all('r', False)
             elif c in ['e', 'ק']:  # record-arm Exclusive mode toggle
-                ctrl.record_exclusive = not ctrl.record_exclusive
-                if not ctrl.record_exclusive:
-                    screen_refresh = True
-                    screen.print_at(' ' * len(record_exclusive_text), screen.width - len(record_exclusive_text),
-                                    record_exclusive_y, bg=bg_color)
+                ctrl.global_controls['record_exclusive'] = not ctrl.global_controls['record_exclusive']
+                display_global_controls('record_exclusive')
             elif c in ['b', 'נ']:  # solo/mute/record-arm off all tracks
                 ctrl.toggle_all('msr', False)
             elif c and '0' <= c <= '9':
