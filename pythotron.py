@@ -106,10 +106,10 @@ e    record-arm Exclusive mode Toggle
 u    solo/mute/record-arm off all tracks
 1-0  choose synth
 
-cycle                    toggle knob mode: pitch bend <-> pitch lock (synths) / temporal scrub (samplers)
-track rewind/forward     change scale maj->min->maj+1/2->min+1/2->... (synths) / slice duration and reversal (samplers)
-marker rewind/forward    change synths and samplers
-rewind/forward           change drawbar harmonizer preset (synths) / sample file (samplers)
+cycle                               toggle knob mode: pitch bend <-> pitch lock (synths) / temporal scrub (samplers)
+down/up or track rewind/forward     change scale M->m->M+1/2->... (synths) / slice duration and reversal (samplers)
+-/= or marker rewind/forward        change synths and samplers
+left/right or rewind/forward        change drawbar harmonizer preset (synths) / sample file (samplers)
 '''
 
 solo_exclusive_text = 'SOLO EXCL'
@@ -664,7 +664,18 @@ def main_loop(screen, ctrl, sound):
                 num = (int(c) - 1) % 10
                 if num < len(synths):
                     ctrl.marker_register = num
-
+            elif c == '-':
+                ctrl.new_transport['marker_rewind'] = True
+            elif c in ['+', '=']:
+                ctrl.new_transport['marker_forward'] = True
+            elif ev.key_code == Screen.KEY_UP:
+                ctrl.new_transport['track_rewind'] = True
+            elif ev.key_code == Screen.KEY_DOWN:
+                ctrl.new_transport['track_forward'] = True
+            elif ev.key_code == Screen.KEY_LEFT:
+                ctrl.new_transport['rewind'] = True
+            elif ev.key_code == Screen.KEY_RIGHT:
+                ctrl.new_transport['forward'] = True
         if screen_refresh:
             screen.refresh()
         time.sleep(sleep)
