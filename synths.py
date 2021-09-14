@@ -17,6 +17,16 @@ def dsaw(detune_semitones=0):
     return func
 
 
+def fix_chords(chord_notes, drawbars):
+    if not isinstance(chord_notes[0], (list, tuple)):
+        chord_notes = [chord_notes]
+    if not isinstance(chord_notes[0][0], (list, tuple)):
+        chord_notes = [chord_notes]
+    if not isinstance(drawbars, (list, tuple)) or not hasattr(drawbars[-1], '__len__'):
+        drawbars = [drawbars]
+    return chord_notes, drawbars
+
+
 hammond_drawbar_notes = (-12, 7, 0, 12, 19, 24, 28, 31, 36)
 
 
@@ -42,12 +52,7 @@ def get_arpeggio_frames(x, lcn, t, samplerate, arpeggio_secs, save_steps, arpegg
 def chord(waveform=np.sin, chord_notes=(0,), seventh=False, drawbars=None, drawbar_notes=hammond_drawbar_notes, arpeggio_order=1, arpeggio_secs=None, arpeggio_amp_step=1, samplerate=44100, **kwargs):
     track = kwargs['track']
     ctrl = kwargs['ctrl']
-    if not isinstance(chord_notes[0], (list, tuple)):
-        chord_notes = [chord_notes]
-    if not isinstance(chord_notes[0][0], (list, tuple)):
-        chord_notes = [chord_notes]
-    if not isinstance(drawbars, (list, tuple)) or not hasattr(drawbars[-1], '__len__'):
-        drawbars = [drawbars]
+    chord_notes, drawbars = fix_chords(chord_notes, drawbars)
     chord_notes = [chord_for_quality[track % len(chord_for_quality)][:None if seventh else 3][::arpeggio_order] for chord_for_quality in chord_notes]
     save_steps = []
     prev_lcn = 0

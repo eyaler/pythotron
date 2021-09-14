@@ -10,7 +10,7 @@ import os
 from pysinewave import SineWave  # note: using the customized https://github.com/eyaler/pysinewave
 import re
 import rtmidi
-from synths import dsaw, chord, loop, paulstretch, get_slice_len, get_windowsize
+from synths import dsaw, chord, loop, paulstretch, fix_chords, get_windowsize, get_slice_len
 import sys
 import time
 from types import SimpleNamespace
@@ -27,8 +27,8 @@ cutoff = 2000000000
 notes = [[0, 2, 4, 5, 7, 9, 11, 12], [0, 2, 3, 5, 7, 8, 10, 12]]  # major scale, natural minor scale
 C = SimpleNamespace(D=[0, 4, 7, 10], M=[0, 4, 7, 11], m=[0, 3, 7, 10], d=[0, 3, 6, 10])  # by default seventh=False and the last note is ignored
 chord_notes = [[C.M, C.m, C.m, C.M, C.D, C.m, C.d], [C.m, C.d, C.M, C.m, C.m, C.M, C.D]]  # major scale, natural minor scale
-asos_notes = [[2, 4, 4, 6, 7, 9, 11, 11]] * 2
-asos_chords = [[C.M, C.m, C.M, C.M, C.M, C.M, C.m, C.M], [C.M, C.m, C.M, C.M, C.m, C.M, C.m, C.M]]
+asos_notes = [[2, 4, 4, 6, 7, 7, 9, 11]] * 2
+asos_chords = [[C.M, C.m, C.M, C.M, [3, 7, 12], C.M, C.M, C.m], [C.M, C.m, C.M, C.M, [3, 7, 12], C.M, C.M, C.M]]
 drawbar_notes = [-12, 7, 0, 12, 19, 24, 28, 31, 36]
 drawbars = [None, '008080800', '868868446', '888']  # unsion, clarinet, full organ, jimmy smith
 detune_semitones = 0.02
@@ -66,7 +66,8 @@ state_cc = {'s': 32, 'm': 48, 'r': 64}
 transport_cc = {'play': 41, 'stop': 42, 'rewind': 43, 'forward': 44, 'record': 45, 'cycle': 46, 'track_rewind': 58, 'track_forward': 59, 'set': 60, 'marker_rewind': 61, 'marker_forward': 62}
 max_cc = 100
 transport_led = ['play', 'stop', 'rewind', 'forward', 'record', 'cycle']
-cc2trans = {v: k for k, v in transport_cc.items()}
+transport_toggle = ['play', 'record', 'cycle']
+cc2transport = {v: k for k, v in transport_cc.items()}
 external_led_mode = True  # requires setting LED Mode to "External" in KORG KONTROL Editor
 in_port_device = 'nanoKONTROL2 1'
 out_port_device = 'nanoKONTROL2 1'
@@ -124,18 +125,19 @@ note_names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 note_names += [x.lower() for x in note_names]
 chord2quality = {tuple(v[:3]): k for k, v in C.__dict__.items()}
 
-if not isinstance(notes[0], (list, tuple)):
-    notes = [notes]
-assert all(len(n) >= num_controls for n in notes), ([len(n) for n in notes], num_controls)
 
-if not isinstance(chord_notes[0], (list, tuple)):
-    chord_notes = [chord_notes]
-if not isinstance(chord_notes[0][0], (list, tuple)):
-    chord_notes = [chord_notes]
-assert len(notes) >= len(chord_notes) and not len(notes) % len(chord_notes), (len(notes), len(chord_notes))
+def fix_notes(notes, chord_notes, drawbars=None):
+    if not isinstance(notes[0], (list, tuple)):
+        notes = [notes]
+    assert all(len(n) >= num_controls for n in notes), ([len(n) for n in notes], num_controls)
+    chord_notes, drawbars = fix_chords(chord_notes, drawbars)
+    assert len(notes) >= len(chord_notes) and not len(notes) % len(chord_notes), (len(notes), len(chord_notes))
+    return notes, chord_notes, drawbars
 
-if not isinstance(drawbars, (list, tuple)) or not hasattr(drawbars[-1], '__len__'):
-    drawbars = [drawbars]
+
+notes, chord_notes, drawbars = fix_notes(notes, chord_notes, drawbars)
+asos_notes, asos_chords, _ = fix_notes(asos_notes, asos_chords)
+
 
 synth_names, synth_funcs = zip(*synths)
 assert len(synth_names) == len(set(synth_names)), sorted(x for x in synth_names if synth_names.count(x) > 1)
@@ -196,7 +198,8 @@ class Soundscape:
         if drawbar is None:
             return ''
         if not isinstance(drawbar, str):
-            drawbar = ''.join(drawbar).ljust(len(drawbar_notes), '0')
+            drawbar = ''.join(drawbar)
+        drawbar = drawbar.ljust(len(drawbar_notes), '0')
         drawbar = drawbar[:2] + ' ' + drawbar[2:7] + ' ' + drawbar[7:]
         return drawbar
 
@@ -391,9 +394,9 @@ class Controller:
         val = int(val)
         if 0 <= cc - slider_cc < num_controls or 0 <= cc - knob_cc < num_controls and (self.knob_mode.startswith('smp') or not self.transport.get('cycle')):
             self.new_controls[cc] = val
-        elif cc in cc2trans:
-            trans = cc2trans[cc]
-            self.new_transport[trans] = not self.transport[trans] if external_led_mode else val > 0
+        elif cc in cc2transport:
+            trans = cc2transport[cc]
+            self.new_transport[trans] = not self.transport[trans] if external_led_mode and trans in transport_toggle else val > 0
         else:
             for state_name in self.states:
                 k = cc - state_cc[state_name]
@@ -420,7 +423,7 @@ class Controller:
             self.states[state_name].update(self.new_states[state_name])
         self.new_states = {state_name: {} for state_name in self.states}
 
-        if not self.new_transport.get('stop', True):
+        if not self.new_transport.get('stop', True):  # works on release
             if self.transport.get('play'):
                 self.new_transport['play'] = False
             if self.transport.get('record'):
