@@ -27,8 +27,8 @@ cutoff = 2000000000
 notes = [[0, 2, 4, 5, 7, 9, 11, 12], [0, 2, 3, 5, 7, 8, 10, 12]]  # major scale, natural minor scale
 C = SimpleNamespace(D=[0, 4, 7, 10], M=[0, 4, 7, 11], m=[0, 3, 7, 10], d=[0, 3, 6, 10])  # by default seventh=False and the last note is ignored
 chord_notes = [[C.M, C.m, C.m, C.M, C.D, C.m, C.d], [C.m, C.d, C.M, C.m, C.m, C.M, C.D]]  # major scale, natural minor scale
-asos_notes = [[2, 4, 4, 6, 7, 7, 9, 11]] * 2
-asos_chords = [[C.M, C.m, C.M, C.M, [3, 7, 12], C.M, C.M, C.m], [C.M, C.m, C.M, C.M, [3, 7, 12], C.M, C.M, C.M]]
+asos_notes = [[2, 4, 4, 6, 7, 9, 11, 7], [2, 4, 4, 6, 7, 9, 11, 11]]
+asos_chords = [[C.M, C.m, C.M, C.M, C.M, C.M, C.m, [3, 7, 12]], [C.M, C.m, C.M, C.M, C.M, C.M, C.m, C.M]]
 drawbar_notes = [-12, 7, 0, 12, 19, 24, 28, 31, 36]
 drawbars = [None, '008080800', '868868446', '888']  # unsion, clarinet, full organ, jimmy smith
 detune_semitones = 0.02
