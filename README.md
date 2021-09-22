@@ -26,7 +26,7 @@
 
 ### Musical instruments:
 - Fader Organ:
-  - Tracks = notes or sample slices
+  - Tracks = notes or samples / slices
   - Sliders = volume
   - Knobs = pitch bend or temporal scrub
 - Finger Theremin (TBD)
@@ -43,27 +43,27 @@
  
 ### Setup:
 - pip install -r requirements.txt
-- Code defaults settings are for KORG nanoKONTROL2
+- Code defaults settings in controller.py are for KORG nanoKONTROL2
 - In KORG KONTROL Editor:
   - If you have a KORG nanoKONTROL2, you can load the pythotron.nktrl2_data scene file included here
   - Otherwise:
     - Set Control Mode to CC
     - Set LED Mode to External, to allow programmatic control 
     - Set all solo/mute/record Button Behavior to Toggle
-    - Set transport cycle/play/record Button Behavior to Toggle
+    - Set transport cycle, set, play, record Button Behavior to Toggle
     - Other transport buttons should be set to Momentary
 - Otherwise, if LED Mode is Internal, change external_led_mode to: False
-- Put your audio samples in "samples" folder
+- Put your audio samples in the "samples" folder (dynamically read, so you can also add files while running)
+  - files in that folder will be sliced to the tracks
+  - files in subfolders will be cyclically mapped to the tracks 
 - For MP3 support [install ffmpeg or gstreamer](https://github.com/librosa/librosa#audioread-and-mp3-support)
 
 ### Known issues:
 - Need a lowpass filter to reduce paulstretch hiss and improve saws
-- No support yet for pitch shifting samples to a *given* note
-- No easy way to allocate a different sample for each track 
 - No way to save and recover the controller state
 - My inefficient implementation requires high CPU settings to avoid glitches and clicks (make sure your laptop is plugged in)
-- Sample looper pitch bending and scrubbing cause significant clicks
 - Code needs to be refactored to use classes instead of function factories 
+- Sample looper (but not Paulstretch) has significant clicks when pitch bending and scrubbing  
 - Due to the currently used framework of [pysinewave](https://github.com/daviddavini/pysinewave): 
   - Controller latency is high
   - Stereo samples are collapsed to duplicated mono
@@ -72,5 +72,7 @@
 But if it was not evident, I am using this as a platform to learn more about music theory, audio effects and sound synthesis, 
 thinking about new "metaphors" to allow me, as a non-musician, to create and perform in the audio domain, and working on developing this into a performative musical instrument.
 In the famous words of Feynman: "What I cannot code in Python, I do not understand."
+
+#### Ride the tide: [a_saucerful_of_secrets_celestial_voices.txt](https://github.com/eyaler/pythotron/blob/main/a_saucerful_of_secrets_celestial_voices.txt)
 
 #### Press "h" for help
