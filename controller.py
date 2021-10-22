@@ -135,12 +135,12 @@ class Controller:
             self.new_controls[cc] = self.knob_center
         self.knob_memory = {knob_mode: [self.knob_center] * self.num_controls for knob_mode in self.knob_modes}
 
-    def toggle_knob_mode(self, is_sampler=None):
+    def toggle_knob_mode(self, is_sampler=None, track=None):
         mode = 'syn-pitch'
         if is_sampler or is_sampler is None and self.knob_mode.startswith('smp'):
             mode = 'smp-scrub' if self.transport.get('cycle') else 'smp-pitch'
         if mode != self.knob_mode:
-            for k in range(self.num_controls):
+            for k in range(self.num_controls) if track is None else [track]:
                 cc = k + self.knob_cc
                 self.knob_memory[self.knob_mode][k] = self.controls[cc]
                 self.controls[cc] = self.knob_memory[mode][k]

@@ -196,6 +196,8 @@ class Soundscape:
                     if self.hasattr_partial(waveform, 'is_func_factory'):
                         waveform = waveform(track=k, ctrl=self.ctrl, sample=sample, samplerate=samplerate)
                     self.tracks[k].set_waveform(waveform)
+                    if not self.synths[self.synth_ind][0].lower().startswith('smp'):
+                        self.ctrl.toggle_knob_mode(is_sampler=self.is_track_live_looping[k], track=k)
 
         if self.is_recording:
             self.record_buffer_cache = None

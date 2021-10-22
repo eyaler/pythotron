@@ -263,7 +263,6 @@ def slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, sample
     if pitch_knob != ctrl.get_knob(track, mode='smp-pitch'):
         pitch_knob = ctrl.get_knob(track, mode='smp-pitch')
         shifted = None
-
     if ctrl.transport.get('set'):
         new_note = get_note_and_chord(ctrl, track, notes)
         if note != new_note:

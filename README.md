@@ -32,6 +32,7 @@
   - Tracks = notes or samples / slices
   - Sliders, solo, mute = volume
   - Knobs = pitch bend or temporal scrub
+  - "One-finger" (slider-up solo-exclusive) mode
 - Live looper
   - Record = start / pause recording 
   - Stop = stop recording and clear buffer for next recording
@@ -48,7 +49,9 @@
 - [Hammond drawbar harmonizer](https://hammondorganco.com/wp-content/uploads/2015/06/03-DRAWBARS-PERCUSSION-corrected.pdf)
 - Sample slicer and looper
 - [Paulstretch](http://hypermammut.sourceforge.net/paulstretch) stretch and freeze (oh yeah!)
- 
+- Pitch bending
+- Autotune 
+
 
 ### Setup:
 - This codebase has only been tested on Windows 10
@@ -74,8 +77,8 @@
 
 
 ### Known issues:
-- OSC interface not functional yet [WIP]
-- Autotune not implemented for looper yet [WIP]
+- OSC interface not functional [WIP]
+- Autotune not implemented for looper [WIP]
 - Need a lowpass filter to reduce paulstretch hiss and improve saws
 - No way to run without a MIDI controller
 - No way to save and recover the controller state
@@ -83,7 +86,7 @@
 - Code needs to be refactored to use classes instead of function factories 
 - Looper (but not Paulstretch) has significant clicks when pitch bending and scrubbing  
 - Due to the currently used framework of [pysinewave](https://github.com/daviddavini/pysinewave): 
-  - Controller latency is high
+  - Controls latency is high
   - Stereo samples are collapsed to duplicated mono
   - Polyphony is implemented by multiple stream which may not be supported on all platforms
 
