@@ -2,5 +2,8 @@ asciimatics
 librosa
 numba
 numpy
+psutil
+pyrubberband
+python-osc
 rtmidi
 git+https://github.com/eyaler/pysinewave

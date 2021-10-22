@@ -1,9 +1,12 @@
+from time import time
+from types import SimpleNamespace
+
 import librosa
 from numba import jit
 import numpy as np
+import pyrubberband
 from pysinewave.utilities import MIDDLE_C_FREQUENCY
-from time import time
-from types import SimpleNamespace
+
 
 rng = np.random  # .Generator(np.random.MT19937())  # Mersenne Twister
 
@@ -12,8 +15,6 @@ gain_normalization_exponent = 1
 # 0   == no normalization (louder with more harmonics, expect clipping)
 # 0.5 == normalize to RMS (average volume stays similar with more harmonics, expect clipping for high volume)
 # 1   == limiter (volume is lower with more harmonics and generally does not utilize the full dynamic range but no clipping)
-
-BASE_C_FREQUENCY = MIDDLE_C_FREQUENCY
 
 bins_per_octave = 12
 
@@ -27,7 +28,6 @@ def add_chord_inversions(chord_namespace):
     for i in range(1, 4):
         for k, v in copy_of_namespace.items():
             chord_namespace.__dict__[k + str(i)] = v[i:] + [n + bins_per_octave for n in v[:i]]
-
     for k, v in copy_of_namespace.items():
         chord_namespace.__dict__[k + '_add8'] = v[:1] + chord_namespace.__dict__[k + '1']
         chord_namespace.__dict__[k + '_add8_no3_add10'] = v[:1] + chord_namespace.__dict__[k + '2']
@@ -37,20 +37,21 @@ add_chord_inversions(C)
 
 
 def fix_chords(chords, drawbars):
-    if not isinstance(chords[0], (list, tuple)):
-        chords = [chords]
-    if not isinstance(chords[0][0], (list, tuple)):
-        chords = [chords]
+    if chords is not None:
+        if not isinstance(chords[0], (list, tuple)):
+            chords = [chords]
+        if not isinstance(chords[0][0], (list, tuple)):
+            chords = [chords]
     if not isinstance(drawbars, (list, tuple)) or not hasattr(drawbars[-1], '__len__'):
         drawbars = [drawbars]
     return chords, drawbars
 
 
-def fix_notes_chords(notes, chords, drawbars=None):
+def fix_notes_chords(notes, chords=None, drawbars=None):
     if not isinstance(notes[0], (list, tuple)):
         notes = [notes]
     chords, drawbars = fix_chords(chords, drawbars)
-    assert len(notes) >= len(chords) and not len(notes) % len(chords), (len(notes), len(chords))
+    assert chords is None or len(notes) >= len(chords) and not len(notes) % len(chords), (len(notes), len(chords))
     return notes, chords, drawbars
 
 
@@ -60,16 +61,18 @@ def trim_chord(chord, seventh=False):
 
 def norm_chord(chord, seventh=False):
     bass = min(chord)
-    return tuple(sorted(set(bass + (n - bass) % bins_per_octave for n in trim_chord(chord, seventh=seventh))))
+    return tuple(sorted(set(bass + (n-bass)%bins_per_octave for n in trim_chord(chord, seventh=seventh))))
 
 
-chord2quality = {norm_chord(v): k for k, v in reversed(C.__dict__.items())}
+chord2quality = {norm_chord(v): k for k, v in reversed(list(C.__dict__.items()))}
 assert chord2quality == {(12, 16, 20): 'A3', (12, 15, 18): 'o3', (12, 16, 19): 'M3', (12, 15, 19): 'm3', (8, 12, 16): 'A2', (6, 12, 15): 'o2', (7, 12, 16): 'M2', (7, 12, 15): 'm2', (4, 8, 12): 'A1', (3, 6, 12): 'o1', (4, 7, 12): 'M1', (3, 7, 12): 'm1', (0, 4, 8): 'A', (0, 3, 6): 'o', (0, 4, 7): 'M', (0, 3, 7): 'm'}
 
 
 def get_note_and_chord(ctrl, k, notes, chords=None, fix_bins=False):
+    if k is None:
+        return None
     scale_quality = ctrl.track_register['syn'] % len(notes)
-    note = notes[scale_quality][k] + ctrl.track_register['syn'] // len(notes)
+    note = notes[scale_quality][k] + ctrl.track_register['syn']//len(notes)
     if fix_bins:
         note *= 12 / bins_per_octave
     if chords:
@@ -84,14 +87,14 @@ def get_note_and_chord(ctrl, k, notes, chords=None, fix_bins=False):
 
 
 def sawtooth(x):  # 15x faster than scipy.signal.sawtooth which was too slow for fast transitions
-    return x / np.pi % 2 - 1
+    return x/np.pi%2 - 1
 
 
 def dsaw(detune_semitones=0):
     def func(x):
-        output = sawtooth(x * 2 ** (-detune_semitones / 2 / bins_per_octave))
+        output = sawtooth(x * 2**(-detune_semitones/2/bins_per_octave))
         if detune_semitones:
-            output = (output + sawtooth(x * 2 ** (detune_semitones / 2 / bins_per_octave))) / 2 ** gain_normalization_exponent
+            output = (output+sawtooth(x * 2**(detune_semitones/2/bins_per_octave))) / 2**gain_normalization_exponent
         return output
     return func
 
@@ -101,16 +104,16 @@ def harmonizer(waveform, x, drawbar, drawbar_notes=hammond_drawbar_notes):
         return waveform(x)
     if isinstance(drawbar, str):
         drawbar = [int(c) for c in drawbar]
-    return np.sum([v * waveform(x * 2 ** (n / bins_per_octave)) for v, n in zip(drawbar, drawbar_notes) if v], axis=0) / sum(drawbar) ** gain_normalization_exponent
+    return np.sum([v * waveform(x * 2**(n/bins_per_octave)) for v, n in zip(drawbar, drawbar_notes) if v], axis=0) / sum(drawbar)**gain_normalization_exponent
 
 
 @jit(cache=True)
 def get_arpeggio_frames(x, lcn, t, samplerate, arpeggio_secs, save_steps, arpeggio_amp_step):
     frames = np.empty((lcn, *x.shape))
     for j in range(len(x)):
-        ind = int((t + j / samplerate) / arpeggio_secs % lcn)
+        ind = int((t+j/samplerate) / arpeggio_secs % lcn)
         for i in range(lcn):
-            prev = save_steps[i] if j == 0 else frames[i, j - 1]
+            prev = save_steps[i] if not j else frames[i, j - 1]
             frames[i, j] = min(prev + arpeggio_amp_step, 1) if i == ind else max(prev - arpeggio_amp_step, 0)
     return frames
 
@@ -129,7 +132,7 @@ def chord_arp(waveform=np.sin, chords=(0,), seventh=False, drawbars=None, drawba
         lcn = len(chord_for_quality)
         if save_steps is None or prev_lcn != lcn:
             if lcn > prev_lcn:
-                save_steps += [0] * (lcn - prev_lcn)
+                save_steps += [0] * (lcn-prev_lcn)
             else:
                 del save_steps[lcn:]
             prev_lcn = lcn
@@ -139,7 +142,7 @@ def chord_arp(waveform=np.sin, chords=(0,), seventh=False, drawbars=None, drawba
                 save_steps[i] = frames[i][-1]
         else:
             frames = [1] * lcn
-        output = np.sum([frames[i] * harmonizer(waveform, x * 2 ** (n / bins_per_octave), drawbars[ctrl.transport_register['syn'] % len(drawbars)], drawbar_notes=drawbar_notes) for i, n in enumerate(chord_for_quality) if np.any(frames[i])], axis=0)
+        output = np.sum([frames[i] * harmonizer(waveform, x * 2**(n/bins_per_octave), drawbars[ctrl.transport_register['syn'] % len(drawbars)], drawbar_notes=drawbar_notes) for i, n in enumerate(chord_for_quality) if np.any(frames[i])], axis=0)
         if output.shape != x.shape:
             output = np.zeros_like(x)
         elif not arpeggio_secs:
@@ -155,11 +158,11 @@ def get_windowsize(windowsize_secs, samplerate):
         windowsize = 16
     while True:
         n = windowsize
-        while (n % 2) == 0:
+        while not n % 2:
             n /= 2
-        while (n % 3) == 0:
+        while not n % 3:
             n /= 3
-        while (n % 5) == 0:
+        while not n % 5:
             n /= 5
         if n < 2:
             break
@@ -167,7 +170,7 @@ def get_windowsize(windowsize_secs, samplerate):
     return windowsize // 2 * 2
 
 
-def get_slice_len(sample, slice_secs, samplerate, windowsize=None, advance_factor=0, elongate_steps=None, elongate_factor=0, extend_reversal=False, smart_skipping=False, no_roll=False, return_elongate_steps=False):
+def get_slice_len(sample, slice_secs, samplerate, windowsize=None, advance_factor=0, loop_mode=None, elongate_steps=None, elongate_factor=0, smart_skipping=False, no_roll=False, return_elongate_steps=False):
     if windowsize and not advance_factor:
         if return_elongate_steps:
             return windowsize, None
@@ -177,12 +180,12 @@ def get_slice_len(sample, slice_secs, samplerate, windowsize=None, advance_facto
         slice_len = sample_len
         slice_secs = slice_len / samplerate
     else:
-        if extend_reversal:
+        if loop_mode == 'reverse':
             slice_secs = abs(slice_secs)
         slice_len = slice_secs * samplerate
     slice_len = round(slice_len)
     windowsize = windowsize or round(samplerate / 100)
-    if slice_len > 0 or extend_reversal:
+    if slice_len > 0 or loop_mode == 'reverse':
         slice_len = max(windowsize, min(slice_len, sample_len))
     else:
         slice_len = max(-sample_len, min(slice_len, -windowsize))
@@ -193,16 +196,16 @@ def get_slice_len(sample, slice_secs, samplerate, windowsize=None, advance_facto
 
     step_len = abs(slice_len) * elongate_factor
     neg_slice_lens = []
-    if not extend_reversal:
+    if loop_mode != 'reverse':
         slice_len = abs(slice_len)
-        neg_slice_lens = list(np.arange(-slice_len, -sample_len, -step_len))[::-1]
-        neg_slice_lens += list(np.arange(-slice_len, -windowsize if smart_skipping else 0, step_len))[1:]
+        neg_slice_lens = list(np.arange(-slice_len, -sample_len, -step_len)[::-1])
+        neg_slice_lens += list(np.arange(-slice_len, -windowsize if smart_skipping else 0, step_len)[1:])
         if not neg_slice_lens or round(neg_slice_lens[0]) != -sample_len:
             neg_slice_lens.insert(0, -sample_len)
         if smart_skipping and round(neg_slice_lens[-1]) != -windowsize:
             neg_slice_lens.append(-windowsize)
-    pos_slice_lens = list(np.arange(slice_len, windowsize if smart_skipping else 0, -step_len))[::-1]
-    pos_slice_lens += list(np.arange(slice_len, sample_len, step_len))[1:]
+    pos_slice_lens = list(np.arange(slice_len, windowsize if smart_skipping else 0, -step_len)[::-1])
+    pos_slice_lens += list(np.arange(slice_len, sample_len, step_len)[1:])
     if not pos_slice_lens or round(pos_slice_lens[-1]) != sample_len:
         pos_slice_lens.append(sample_len)
     if smart_skipping and round(pos_slice_lens[0]) != windowsize:
@@ -224,47 +227,58 @@ def get_slice_len(sample, slice_secs, samplerate, windowsize=None, advance_facto
     return slice_len
 
 
-def slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, extend_reversal, sample_len_for_slicing, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, freqs=None, windowsize=None, advance_factor=0, smart_skipping=False):
+def slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, loop_mode, stable_max_global_pos, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, freqs=None, windowsize=None, advance_factor=0, smart_skipping=False):
     if elongate_steps != ctrl.track_register['smp']:
         elongate_steps = ctrl.track_register['smp']
-        slice_len = get_slice_len(sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor, elongate_steps=elongate_steps, elongate_factor=elongate_factor, extend_reversal=extend_reversal, smart_skipping=smart_skipping)
-        if sample_len_for_slicing is None:
+        slice_len = get_slice_len(sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor, loop_mode=loop_mode, elongate_steps=elongate_steps, elongate_factor=elongate_factor, smart_skipping=smart_skipping)
+        if stable_max_global_pos is None:
             initial_slice_len = slice_len
-            if elongate_steps:
-                initial_slice_len = get_slice_len(sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor)
-            sample_len_for_slicing = sample.shape[-1] - initial_slice_len
+            if elongate_steps and elongate_factor:
+                initial_slice_len = get_slice_len(sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor, loop_mode=loop_mode)
+            stable_max_global_pos = sample.shape[-1] - initial_slice_len
         pos = 0
         scrub_knob = None
     if scrub_knob != ctrl.get_knob(track, mode='smp-scrub'):
         scrub_knob = ctrl.get_knob(track, mode='smp-scrub')
-        scrub_len = sample.shape[-1]
+        max_global_pos = max(sample.shape[-1] - slice_len, stable_max_global_pos)
+        scrub_len = max_global_pos
         if max_scrub_secs:
             scrub_len = min(scrub_len, round(max_scrub_secs * samplerate))
-        global_pos = max(0, min(int(scrub_knob * scrub_len + ctrl.relative_track(track) * sample_len_for_slicing), sample_len_for_slicing))
-        loop_smp = sample[..., global_pos:global_pos + abs(slice_len)]
+        global_pos = max(0, min(int(scrub_knob*scrub_len + ctrl.relative_track(track)*stable_max_global_pos), max_global_pos))
+        loop_smp = sample[..., global_pos : global_pos + abs(slice_len)]
         if slice_len < 0:
             loop_smp = loop_smp[..., ::-1]
-        if extend_reversal and (not windowsize or advance_factor):
+        if loop_mode == 'trim_to_zero':
+            if len(loop_smp.shape) > 1:
+                loop_smp = librosa.to_mono(loop_smp)
+            zeros = np.nonzero(librosa.zero_crossings(loop_smp))[0]
+            if len(zeros) > 1:
+                loop_smp = loop_smp[zeros[0]:zeros[-1]]
+        elif loop_mode == 'reverse' and (not windowsize or advance_factor):
             loop_smp = np.hstack((loop_smp, loop_smp[..., ::-1]))
         freqs = None
         pitch_knob = None
+        if ctrl.transport.get('set'):
+            pos = 0
     if pitch_knob != ctrl.get_knob(track, mode='smp-pitch'):
         pitch_knob = ctrl.get_knob(track, mode='smp-pitch')
         shifted = None
+
     if ctrl.transport.get('set'):
         new_note = get_note_and_chord(ctrl, track, notes)
         if note != new_note:
             note = new_note
             shifted = None
-    elif 'set' in ctrl.transport:
+    else:
+        if note is not None:
+            shifted = None
         note = None
-        shifted = None
-    return elongate_steps, slice_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs
+    return elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs
 
 
-def loop(notes=None, max_bend_semitones=bins_per_octave, slice_secs=0.25, elongate_factor=0.05, max_scrub_secs=None, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
+def looper(notes=None, max_bend_semitones=bins_per_octave, slice_secs=None, elongate_factor=0.05, max_scrub_secs=None, loop_mode='trim_to_zero', samplerate=44100, mono=True, **kwargs):
     # we currently use pysinewave which is (possibly duplicated) mono, so have to convert result to mono
-    track = kwargs['track']
+    track = kwargs.get('track')
     ctrl = kwargs['ctrl']
     sample = kwargs['sample']
     smart_skipping = True
@@ -276,7 +290,7 @@ def loop(notes=None, max_bend_semitones=bins_per_octave, slice_secs=0.25, elonga
 
     elongate_steps = None
     slice_len = None
-    sample_len_for_slicing = None
+    stable_max_global_pos = None
     pos = None
     scrub_knob = None
     loop_smp = None
@@ -285,28 +299,24 @@ def loop(notes=None, max_bend_semitones=bins_per_octave, slice_secs=0.25, elonga
     note = None
 
     def func(x):
-        nonlocal elongate_steps, slice_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, note
-        elongate_steps, slice_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, *_ = slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, extend_reversal, sample_len_for_slicing, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, smart_skipping=smart_skipping)
+        nonlocal elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note
+        elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, *_ = slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, loop_mode, stable_max_global_pos, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, smart_skipping=smart_skipping)
         if shifted is None:
             shifted = loop_smp
             if pitch_knob:
-                shifted = [librosa.effects.pitch_shift(smp, samplerate, pitch_knob * max_bend_semitones, bins_per_octave=bins_per_octave) for smp in (loop_smp if channels > 1 else [loop_smp])]
-                if channels > 1:
-                    shifted = np.asarray(shifted)
-                else:
-                    shifted = shifted[0]
+                shifted = pyrubberband.pitch_shift(loop_smp.T, samplerate, pitch_knob * max_bend_semitones * 12 / bins_per_octave, rbargs={'--realtime': '--realtime'}).T
             if mono and channels > 1:
                 shifted = librosa.to_mono(shifted)
 
-        output = shifted[..., int(pos):int(pos) + x.shape[-1]]
+        output = np.copy(shifted[..., int(pos) : int(pos) + x.shape[-1]])
         while output.shape[-1] < x.shape[-1]:
             output = np.hstack((output, shifted[..., :x.shape[-1]]))
-        pos = (pos + x.shape[-1]) % shifted.shape[-1]
+        pos = (pos+x.shape[-1]) % shifted.shape[-1]
         return output[..., :x.shape[-1]]
     return func
 
 
-def paulstretch(notes=None, max_bend_semitones=bins_per_octave, windowsize_secs=0.25, slice_secs=0.5, elongate_factor=0.05, max_scrub_secs=None, advance_factor=0, extend_reversal=False, samplerate=44100, mono=True, **kwargs):
+def paulstretch(notes=None, max_bend_semitones=bins_per_octave, windowsize_secs=0.25, slice_secs=0.5, elongate_factor=0.05, max_scrub_secs=None, advance_factor=0, loop_mode=None, samplerate=44100, mono=True, **kwargs):
     # adapted from https://github.com/paulnasca/paulstretch_python, https://github.com/paulnasca/paulstretch_cpp
     # we currently use pysinewave which is (possibly duplicated) mono, so have to convert result to mono
     track = kwargs['track']
@@ -321,7 +331,7 @@ def paulstretch(notes=None, max_bend_semitones=bins_per_octave, windowsize_secs=
 
     elongate_steps = None
     slice_len = None
-    sample_len_for_slicing = None
+    stable_max_global_pos = None
     pos = None
     scrub_knob = None
     loop_smp = None
@@ -329,41 +339,54 @@ def paulstretch(notes=None, max_bend_semitones=bins_per_octave, windowsize_secs=
     shifted = None
     note = None
     freqs = None
+    freqs0 = None
 
     windowsize = get_windowsize(windowsize_secs, samplerate)
-    window = (1 - np.linspace(-1, 1, windowsize) ** 2) ** 1.25
+    window = (1-np.linspace(-1, 1, windowsize)**2) ** 1.25
     old_windowed_buf = np.zeros((channels if not mono else 1, windowsize)).squeeze()
     later = old_windowed_buf[..., :0]
 
     def func(x):
-        nonlocal elongate_steps, slice_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs, old_windowed_buf, later
-        elongate_steps, slice_len, sample_len_for_slicing, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs = slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, extend_reversal, sample_len_for_slicing, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, freqs=freqs, windowsize=windowsize, advance_factor=advance_factor, smart_skipping=smart_skipping)
+        nonlocal elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs, old_windowed_buf, later, freqs0
+        elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs = slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, loop_mode, stable_max_global_pos, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, freqs=freqs, windowsize=windowsize, advance_factor=advance_factor, smart_skipping=smart_skipping)
         while later.shape[-1] < x.shape[-1]:
             if freqs is None or advance_factor:
                 # get the windowed buffer
-                buf = loop_smp[..., int(pos):int(pos) + windowsize]
+                buf = loop_smp[..., int(pos) : int(pos) + windowsize]
                 if buf.shape[-1] < windowsize:
                     buf = np.hstack([buf, np.zeros((channels, windowsize - buf.shape[-1])).squeeze()])
-                buf = buf * window
+                buf = buf * window  # don't do *=
 
                 # get the amplitudes of the frequency components and discard the phases
                 freqs = abs(np.fft.rfft(buf))
+                if not pos:
+                    freqs0 = freqs
                 shifted = None
 
             if shifted is None:
                 shifted = freqs
-                if pitch_knob or ctrl.transport.get('set') and note is not None:
+                freq_grid = None
+                if ctrl.transport.get('set') and note is not None:
+                    freq_grid = np.fft.rfftfreq(freqs0.shape[-1], d=1/samplerate)
+                if pitch_knob or freq_grid is not None:
+                    if len(freqs.shape) == 1:
+                        freqs = freqs[None, ...]
                     shifted = np.zeros_like(freqs)
                     pitch_shift = pitch_knob * max_bend_semitones
-                    if ctrl.transport.get('set') and note is not None:
-                        pitch_shift += note - np.log2(np.fft.rfftfreq(freqs.shape[-1], d=1/samplerate)[(np.argmax(freqs[..., 1:]) + 1) % freqs.shape[-1]] / BASE_C_FREQUENCY) * bins_per_octave
-                    rap = 2 ** (pitch_shift / bins_per_octave)
-                    if rap < 1:
-                        for i in range(freqs.shape[-1]):
-                            shifted[..., int(i * rap)] += freqs[..., i]
-                    else:
-                        for i in range(freqs.shape[-1]):
-                            shifted[..., i] = freqs[..., int(i / rap)]
+                    for ch in range(len(freqs)):
+                        denom = 1
+                        if freq_grid is not None:
+                            pitch_shift += note
+                            denom = freq_grid[(np.argmax(freqs[ch, 1:]) + 1)] / MIDDLE_C_FREQUENCY
+                        rap = 2**(pitch_shift/bins_per_octave) / denom
+                        if rap < 1:
+                            for i in range(freqs.shape[-1]):
+                                shifted[ch, int(i * rap)] += freqs[ch, i]
+                        else:
+                            for i in range(freqs.shape[-1]):
+                                shifted[ch, i] = freqs[ch, int(i / rap)]
+                    freqs = freqs.squeeze()
+                    shifted = shifted.squeeze()
 
             # randomize the phases by multiplication with a random complex number with modulus=1
             ph = rng.uniform(0, 2 * np.pi, (channels, freqs.shape[-1])).squeeze() * 1j
@@ -379,7 +402,7 @@ def paulstretch(notes=None, max_bend_semitones=bins_per_octave, windowsize_secs=
             buf *= window
 
             # overlap-add the output
-            output = (buf[..., :windowsize // 2] + old_windowed_buf[..., windowsize // 2:windowsize]) / np.sqrt(2) * 1.6 ** 2  # my estimated amplitude correction
+            output = (buf[..., : windowsize // 2]+old_windowed_buf[..., windowsize // 2 : windowsize]) / np.sqrt(2) * 1.6**2  # my estimated amplitude correction
             old_windowed_buf = buf
 
             # clamp the values to -1..1
@@ -387,7 +410,9 @@ def paulstretch(notes=None, max_bend_semitones=bins_per_octave, windowsize_secs=
 
             later = np.hstack((later, output))
 
-            pos = (pos + windowsize / 2 * advance_factor) % max(1, loop_smp.shape[-1] - windowsize)
+            pos += windowsize / 2 * advance_factor
+            if pos > loop_smp.shape[-1] - windowsize:
+                pos = 0
 
         now = later[..., :x.shape[-1]]
         later = later[..., x.shape[-1]:]
@@ -397,10 +422,10 @@ def paulstretch(notes=None, max_bend_semitones=bins_per_octave, windowsize_secs=
 
 dsaw.is_func_factory = True
 chord_arp.is_func_factory = True
-loop.is_func_factory = True
+looper.is_func_factory = True
 paulstretch.is_func_factory = True
 
-loop.show_track_numbers = True
-loop.skip_external_pitch_control = True
+looper.show_track_numbers = True
+looper.skip_external_pitch_control = True
 paulstretch.show_track_numbers = True
 paulstretch.skip_external_pitch_control = True

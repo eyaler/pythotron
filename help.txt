@@ -1,0 +1,29 @@
+h    Help show/hide
+i    Initialize
+p    reset midi Ports
+k    reset Knobs (for the active knob mode)
+l    reset sliders
+s    Solo on all tracks
+a    solo off All tracks (play All)
+f    slider up solo exclusive "one-Finger" mode toggle
+x    solo eXclusive mode toggle
+w    solo defeats mute toggle (otherwise mute has precedence)
+m    Mute on all tracks
+u    mute off all tracks (Unmute)
+q    mute override all tracks toggle (Quiet)
+r    Record-arm on all tracks
+d    record-arm off all tracks (Disarm)
+e    record-arm Exclusive mode toggle
+z    solo/mute/record-arm off all tracks
+o    OSC toggle
+
+1 to 9 and 0           choose synth
+- =  or MARKER-REW/FF  change synth
+← →  or REW/FF         change drawbar harmonizer preset (synths) / sample file (samplers)
+↓ ↑  or TRACK-REW/FF   change scale M->m->M+1/2->... or custom notes/chords (synths) / slice duration and reversal (samplers)
+/    or SET            sampler autotune to scale toggle
+CYCLE                  knob mode toggle: pitch bend <-> pitch lock (synths) / temporal scrub (samplers)
+RECORD                 start / pause recording
+STOP                   stop recording and clear buffer for next recording
+PLAY                   grab current recorded buffer and loop it / stop
+CTRL-Q                 Quit
