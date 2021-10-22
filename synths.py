@@ -227,24 +227,27 @@ def get_slice_len(sample, slice_secs, samplerate, windowsize=None, advance_facto
     return slice_len
 
 
-def slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, loop_mode, stable_max_global_pos, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, freqs=None, windowsize=None, advance_factor=0, smart_skipping=False):
+def slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, loop_mode, stable_last_slice_start, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, freqs=None, windowsize=None, advance_factor=0, smart_skipping=False):
     if elongate_steps != ctrl.track_register['smp']:
         elongate_steps = ctrl.track_register['smp']
         slice_len = get_slice_len(sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor, loop_mode=loop_mode, elongate_steps=elongate_steps, elongate_factor=elongate_factor, smart_skipping=smart_skipping)
-        if stable_max_global_pos is None:
-            initial_slice_len = slice_len
-            if elongate_steps and elongate_factor:
-                initial_slice_len = get_slice_len(sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor, loop_mode=loop_mode)
-            stable_max_global_pos = sample.shape[-1] - initial_slice_len
+        if stable_last_slice_start is None:
+            if slice_secs is None:
+                stable_last_slice_start = 0
+            else:
+                initial_slice_len = slice_len
+                if elongate_steps and elongate_factor:
+                    initial_slice_len = get_slice_len(sample, slice_secs, samplerate, windowsize=windowsize, advance_factor=advance_factor, loop_mode=loop_mode)
+                stable_last_slice_start = sample.shape[-1] - initial_slice_len
         pos = 0
         scrub_knob = None
     if scrub_knob != ctrl.get_knob(track, mode='smp-scrub'):
         scrub_knob = ctrl.get_knob(track, mode='smp-scrub')
-        max_global_pos = max(sample.shape[-1] - slice_len, stable_max_global_pos)
+        max_global_pos = max(sample.shape[-1] - slice_len, stable_last_slice_start)
         scrub_len = max_global_pos
         if max_scrub_secs:
             scrub_len = min(scrub_len, round(max_scrub_secs * samplerate))
-        global_pos = max(0, min(int(scrub_knob*scrub_len + ctrl.relative_track(track)*stable_max_global_pos), max_global_pos))
+        global_pos = max(0, min(int(scrub_knob*scrub_len + ctrl.relative_track(track)*stable_last_slice_start), max_global_pos))
         loop_smp = sample[..., global_pos : global_pos + abs(slice_len)]
         if slice_len < 0:
             loop_smp = loop_smp[..., ::-1]
@@ -272,7 +275,7 @@ def slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, sample
         if note is not None:
             shifted = None
         note = None
-    return elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs
+    return elongate_steps, slice_len, stable_last_slice_start, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs
 
 
 def looper(notes=None, max_bend_semitones=bins_per_octave, slice_secs=None, elongate_factor=0.05, max_scrub_secs=None, loop_mode='trim_to_zero', samplerate=44100, mono=True, **kwargs):
@@ -289,7 +292,7 @@ def looper(notes=None, max_bend_semitones=bins_per_octave, slice_secs=None, elon
 
     elongate_steps = None
     slice_len = None
-    stable_max_global_pos = None
+    stable_last_slice_start = None
     pos = None
     scrub_knob = None
     loop_smp = None
@@ -298,8 +301,8 @@ def looper(notes=None, max_bend_semitones=bins_per_octave, slice_secs=None, elon
     note = None
 
     def func(x):
-        nonlocal elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note
-        elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, *_ = slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, loop_mode, stable_max_global_pos, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, smart_skipping=smart_skipping)
+        nonlocal elongate_steps, slice_len, stable_last_slice_start, pos, scrub_knob, loop_smp, pitch_knob, shifted, note
+        elongate_steps, slice_len, stable_last_slice_start, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, *_ = slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, loop_mode, stable_last_slice_start, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, smart_skipping=smart_skipping)
         if shifted is None:
             shifted = loop_smp
             if pitch_knob:
@@ -330,7 +333,7 @@ def paulstretch(notes=None, max_bend_semitones=bins_per_octave, windowsize_secs=
 
     elongate_steps = None
     slice_len = None
-    stable_max_global_pos = None
+    stable_last_slice_start = None
     pos = None
     scrub_knob = None
     loop_smp = None
@@ -346,8 +349,8 @@ def paulstretch(notes=None, max_bend_semitones=bins_per_octave, windowsize_secs=
     later = old_windowed_buf[..., :0]
 
     def func(x):
-        nonlocal elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs, old_windowed_buf, later, freqs0
-        elongate_steps, slice_len, stable_max_global_pos, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs = slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, loop_mode, stable_max_global_pos, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, freqs=freqs, windowsize=windowsize, advance_factor=advance_factor, smart_skipping=smart_skipping)
+        nonlocal elongate_steps, slice_len, stable_last_slice_start, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs, old_windowed_buf, later, freqs0
+        elongate_steps, slice_len, stable_last_slice_start, pos, scrub_knob, loop_smp, pitch_knob, shifted, note, windowsize, freqs = slice_scrub_bend(elongate_steps, ctrl, slice_len, sample, slice_secs, samplerate, elongate_factor, loop_mode, stable_last_slice_start, max_scrub_secs, pos, scrub_knob, track, loop_smp, pitch_knob, shifted, notes, note, freqs=freqs, windowsize=windowsize, advance_factor=advance_factor, smart_skipping=smart_skipping)
         while later.shape[-1] < x.shape[-1]:
             if freqs is None or advance_factor:
                 # get the windowed buffer
