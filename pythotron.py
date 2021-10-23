@@ -184,7 +184,7 @@ def main_loop(screen, ctrl, sound):
                         hidden = True
                 else:
                     if j == val_j:
-                        text = f'{v - ctrl.knob_center : 2}'
+                        text = f'{v - ctrl.knob_center :2}'
                         if v > ctrl.knob_center:
                             text += '+'
                         elif len(text) < 3:
@@ -194,7 +194,7 @@ def main_loop(screen, ctrl, sound):
                             text = ' + '
                         else:
                             text = '  +'
-                    elif knob_size/2 > j > val_j:
+                    elif knob_size / 2 > j > val_j:
                         if j == knob_size // 2:
                             text = ' - '
                         else:
@@ -202,8 +202,9 @@ def main_loop(screen, ctrl, sound):
                     else:
                         hidden = True
 
+                x = abs(j - (knob_size-1)/2) - (knob_size-1)/4 - 1
                 screen.print_at(text,
-                                int((k+0.5)*screen.width/ctrl.num_controls - 1 + 2*(j-(knob_size-1)/2+(1 if j < (knob_size-1) / 2 else -1)*(abs(abs(j - (knob_size-1)/2) - (knob_size-1)/4 - 1)*2+1)*(abs(j - (knob_size-1)/2) >= (knob_size - 1)/4 + 1))*(not is_slider)),
+                                int((k+0.5)*screen.width/ctrl.num_controls - 1 + 2*(j-(knob_size-1)/2+(1 if j < (knob_size-1) / 2 else -1)*(abs(x)*2+1)*(x >= 0))*(not is_slider)),
                                 int(((slider_size/2 - j) if is_slider else (abs(j - (knob_size-1)/2) - knob_size/4)) + (is_slider+0.5)*screen.height/2 - (is_slider and slider_size / 2 >= screen.height / 4)),
                                 colour=solo_color if 's' in ctrl.states and ctrl.states['s'][k] else fg_color,
                                 attr=Screen.A_NORMAL if 'm' in ctrl.states and ctrl.states['m'][k] else Screen.A_BOLD,
